@@ -18,6 +18,8 @@ o que o presidente vetou. Com isso, dá para perguntar:
 
 A resposta sai dos dados, com a votação, a data e o placar, e não da memória do modelo.
 
+## Como funciona
+
 **O diferencial é a busca (RAG) sobre o conteúdo das leis.** Mais de 740 mil trechos
 de inteiro teor estão indexados numa busca híbrida, semântica e por palavra-chave.
 Por isso, uma pergunta sobre "apostas esportivas" encontra o projeto que fala em
