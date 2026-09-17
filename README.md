@@ -30,7 +30,7 @@ Funciona em qualquer cliente MCP (claude.ai, Claude Desktop, Claude Code, Cursor
 basta conectar a URL do servidor.
 
 
-## Como rodar o servidor localmente?
+## Como rodar o servidor localmente
 
 Pré-requisito: ter [uv](https://docs.astral.sh/uv/#installation) instalado.
 
