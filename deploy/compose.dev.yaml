@@ -1,0 +1,24 @@
+# Desenvolvimento: a mesma imagem de produção, sem Caddy e sem login,
+# publicada só em 127.0.0.1.
+#
+#   cd deploy
+#   LEIS_BANCO_DIR=/caminho/da/pasta/do/leis.db \
+#     docker compose -f compose.yaml -f compose.dev.yaml up --build leis-mcp
+#
+# Conecte em http://127.0.0.1:8000/mcp.
+
+services:
+  leis-mcp:
+    env_file: !reset []
+    environment:
+      LEIS_AUTH: "off"
+      # Dentro do contêiner o servidor escuta em 0.0.0.0; a porta só é
+      # publicada em 127.0.0.1 do host, logo continua inacessível pela rede.
+      LEIS_PERMITIR_SEM_AUTH_EM_REDE: "1"
+      LEIS_DB_IMUTAVEL: "1"
+      LEIS_LOG_NIVEL: INFO
+    ports:
+      - "127.0.0.1:8000:8000"
+
+  caddy:
+    profiles: ["producao"]

@@ -1,0 +1,12 @@
+.git
+.venv
+**/__pycache__
+**/*.pyc
+dados/
+deploy/.env
+deploy/gcp/config.env
+docs/
+*.db
+*.db-wal
+*.db-shm
+*.csv

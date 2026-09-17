@@ -1,0 +1,57 @@
+# Produção: Caddy (HTTPS automático) na frente do leis-mcp.
+#
+#   cd deploy && cp exemplo.env .env   # preencha
+#   docker compose up -d --build
+#
+# Desenvolvimento local, sem Caddy e sem login: veja compose.dev.yaml.
+
+name: leis
+
+services:
+  leis-mcp:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: leis-mcp:local
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      LEIS_TRANSPORTE: http
+      # Em produção o banco nunca muda com o servidor no ar: sem locks.
+      LEIS_DB_IMUTAVEL: "1"
+    volumes:
+      # Pasta que contém leis.db, montada somente leitura.
+      - ${LEIS_BANCO_DIR:?defina LEIS_BANCO_DIR no .env}:/banco:ro
+      # usuarios.db e estado do OAuth (registros de clientes, tokens cifrados).
+      - dados:/dados
+    expose:
+      - "8000"
+    # O processo pica em ~3,6 GB; o limite evita que um vazamento derrube a VM.
+    mem_limit: 6g
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      leis-mcp:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      LEIS_DOMINIO: ${LEIS_DOMINIO:-}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  dados:
+  caddy_data:
+  caddy_config:

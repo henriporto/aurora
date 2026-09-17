@@ -1,0 +1,40 @@
+# Ambiente
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+.idea/
+.vscode/
+.DS_Store
+
+# Segredos
+.env
+deploy/.env
+deploy/gcp/config.sh
+deploy/gcp/config.env
+
+# Dados locais: bancos, estado OAuth, exportações, cópias e downloads.
+# A barra inicial importa: sem ela, "dados/" também ignoraria src/leis_mcp/dados/.
+/dados/
+*.db
+*.db-wal
+*.db-shm
+*.csv
+*.sha256
+*.zst
+*.parcial
+
+# ETL: logs, controle de anos e downloads
+/logs/
+*.log
+etl/*.done
+
+/pessoal/
+/docs/
+/etl
+/avaliacao
