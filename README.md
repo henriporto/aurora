@@ -1,22 +1,59 @@
-# leis-mcp
+# 🗳️Aurora
 
-Servidor **MCP** (Model Context Protocol) com dados oficiais do processo legislativo
-federal brasileiro: votos nominais, proposições, autoria, relatorias, vetos e
-inteiro teor. Qualquer cliente MCP (claude.ai, Claude Desktop, Claude Code, Cursor)
-se conecta por uma URL e ganha ferramentas para responder, com dados, perguntas
-como *"como a deputada X votou sobre Y?"* ou *"quem defende Z?"*.
+**As eleições estão chegando, e perguntar a uma IA sobre política é um tiro no escuro.**
+Ela não sabe como cada parlamentar votou, não leu os projetos de lei e, sem esse
+contexto, inventa respostas ou entrega só metade da história.
 
-Na prática, o servidor distingue **não votou** de **não houve votação nominal**,
-separa a votação do **texto** das de rito, emenda e destaque, e nunca poda
-resultados: o que não cabe numa resposta vem em páginas, acompanhado de um
-resumo completo.
+Este projeto dá à IA acesso aos dados oficiais da Câmara e do Senado: cada voto
+nominal, cada proposição com o texto na íntegra, quem apresentou, quem relatou e
+o que o presidente vetou. Com isso, dá para perguntar:
 
-| Base (medida) | |
-| :--- | ---: |
-| Proposições | 429.292 |
-| Votos nominais individuais | 1.303.357 (3.773 votações, 2018-02-07 a 2026-09-03) |
-| Trechos de inteiro teor indexados | 741.519 |
-| Parlamentares | 1.630 |
+- *"O deputado [nome] tem votado a favor das bets?"*
+- *"Como a bancada do [partido] votou na reforma tributária?"*
+- *"Quais senadores votaram contra o marco temporal?"*
+- *"Meu candidato já propôs alguma coisa sobre segurança pública?"*
+- *"Quais parlamentares defendem a regulamentação da inteligência artificial?"*
+- *"Existe algum projeto que proíba celular nas escolas? O que ele diz?"*
+- *"O que o presidente vetou na lei do saneamento básico?"*
+
+A resposta sai dos dados, com a votação, a data e o placar, e não da memória do modelo.
+
+**O diferencial é a busca (RAG) sobre o conteúdo das leis.** Mais de 740 mil trechos
+de inteiro teor estão indexados numa busca híbrida, semântica e por palavra-chave.
+Por isso, uma pergunta sobre "apostas esportivas" encontra o projeto que fala em
+"loteria de quota fixa", mesmo sem nenhuma palavra em comum. É assim que a IA liga
+um tema a proposições e, delas, aos votos de cada parlamentar.
+
+Funciona em qualquer cliente MCP (claude.ai, Claude Desktop, Claude Code, Cursor):
+basta conectar a URL do servidor.
+
+
+## Como rodar o servidor localmente?
+
+Pré-requisito: ter [uv](https://docs.astral.sh/uv/#installation) instalado.
+
+Baixe o banco (~2 GB de download, 9,4 GB instalado). O script
+[`scripts/baixar_banco.py`](scripts/baixar_banco.py) baixa do Hugging Face,
+descomprime, confere o SHA-256 e salva em `dados/leis.db`:
+
+```bash
+uv run scripts/baixar_banco.py
+```
+
+Depois, suba o servidor:
+
+```bash
+uv sync
+LEIS_AUTH=off uv run leis-mcp          # usa dados/leis.db
+```
+
+## Conectar um cliente
+
+| Cliente | Como |
+| :--- | :--- |
+| Claude Code | `claude mcp add --transport http leis http://127.0.0.1:8000/mcp` |
+| Cursor | `.cursor/mcp.json`: `{"mcpServers": {"leis": {"url": "http://127.0.0.1:8000/mcp"}}}` |
+
 
 ## Stack
 
@@ -41,7 +78,7 @@ resumo completo.
 
 Detalhes em [`docs/ferramentas.md`](docs/ferramentas.md).
 
-## Perguntas de exemplo
+## Mais exemplos de perguntas
 
 | Tipo | Exemplo |
 | :--- | :--- |
@@ -70,67 +107,12 @@ preencher: `como_votou`, `como_votou_partido`, `quem_se_alinha`, `quem_propos`,
 | claude.ai / Claude Desktop | menu **+** da caixa de mensagem → conector → prompt |
 | MCP Inspector | aba *Prompts* |
 
-## Como rodar o servidor localmente?
+### Base de dados
 
-Pré-requisito: ter [uv](https://docs.astral.sh/uv/#installation) instalado.
+A base possui dados de `2018-02-07` a `2026-09-03`.
 
-Baixe o banco (~2 GB de download, 9,4 GB instalado). O script
-[`scripts/baixar_banco.py`](scripts/baixar_banco.py) baixa do Hugging Face,
-descomprime, confere o SHA-256 e salva em `dados/leis.db`:
-
-```bash
-uv run scripts/baixar_banco.py
-```
-
-Depois, suba o servidor:
-
-```bash
-uv sync
-LEIS_AUTH=off uv run leis-mcp          # usa dados/leis.db
-```
-
-Com a mesma imagem de produção (Docker):
-
-```bash
-cd deploy
-LEIS_BANCO_DIR=$PWD/../dados \
-  docker compose -f compose.yaml -f compose.dev.yaml up --build leis-mcp
-```
-
-Sem login, o usuário local é administrador. O servidor se recusa a subir sem
-login fora de `127.0.0.1`.
-
-## Conectar um cliente
-
-| Cliente | Como |
-| :--- | :--- |
-| Claude Code | `claude mcp add --transport http leis http://127.0.0.1:8000/mcp` |
-| Cursor | `.cursor/mcp.json`: `{"mcpServers": {"leis": {"url": "http://127.0.0.1:8000/mcp"}}}` |
-| claude.ai / Claude Desktop | só o servidor remoto: *Personalizar → Conectores → "+"* → `https://SEU-DOMINIO/mcp` → Entrar agora |
-| MCP Inspector | `npx @modelcontextprotocol/inspector` → URL do servidor |
-
-## Publicar no GCP
-
-```bash
-cp deploy/gcp/config.exemplo.sh deploy/gcp/config.sh   # projeto, região, bucket
-cp deploy/exemplo.env deploy/.env                       # domínio, Google OAuth, admins
-bash deploy/gcp/01_criar_infra.sh    # IP, firewall, VM, bucket
-# aponte o DNS do domínio para o IP exibido
-bash deploy/gcp/02_enviar_banco.sh   # prepara, envia e troca o leis.db
-bash deploy/gcp/03_publicar_app.sh   # código + docker compose up (publica o último commit)
-```
-
-Passo a passo, custos e o cliente OAuth do Google:
-[`docs/deploy_gcp.md`](docs/deploy_gcp.md) e [`docs/autenticacao.md`](docs/autenticacao.md).
-
-
-## Administrar
-
-```bash
-# na VM: cd /srv/leis/app/deploy && docker compose exec leis-mcp leis-admin ...
-leis-admin usuarios listar
-leis-admin usuarios aprovar fulano@gmail.com
-leis-admin usuarios cota fulano@gmail.com 100
-leis-admin relatorio --desde 2026-10-01
-leis-admin exportar chamadas.csv --anonimizar
-```
+| Proposições | 429.292 |
+| :--- | ---: |
+| Votos nominais individuais | 1.303.357 (3.773 votações) |
+| Trechos de inteiro teor indexados | 741.519 |
+| Parlamentares | 1.630 |
