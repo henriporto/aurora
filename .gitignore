@@ -38,3 +38,5 @@ etl/*.done
 /docs/
 /etl
 /avaliacao
+
+!docs/ferramentas.md

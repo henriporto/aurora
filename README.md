@@ -1,4 +1,21 @@
-# 🗳️Aurora
+<p align="center">
+  <a href="http://auroravoto.com.br/"><img src="assets/lobo.png" alt="Aurora" width="120"></a>
+</p>
+
+<h1 align="center">Aurora</h1>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Python_3.12-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python">
+  <img src="https://img.shields.io/badge/MCP-000000?style=for-the-badge&logo=modelcontextprotocol&logoColor=white" alt="MCP">
+  <img src="https://img.shields.io/badge/uv-DE5FE9?style=for-the-badge&logo=uv&logoColor=white" alt="uv">
+  <img src="https://img.shields.io/badge/SQLite-003B57?style=for-the-badge&logo=sqlite&logoColor=white" alt="SQLite">
+  <img src="https://img.shields.io/badge/NumPy-013243?style=for-the-badge&logo=numpy&logoColor=white" alt="NumPy">
+  <img src="https://img.shields.io/badge/PyTorch-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white" alt="PyTorch">
+  <img src="https://img.shields.io/badge/Hugging_Face-FFD21E?style=for-the-badge&logo=huggingface&logoColor=black" alt="Hugging Face">
+  <img src="https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker">
+  <img src="https://img.shields.io/badge/Caddy-1F88C0?style=for-the-badge&logo=caddy&logoColor=white" alt="Caddy">
+  <img src="https://img.shields.io/badge/Google_Cloud-4285F4?style=for-the-badge&logo=googlecloud&logoColor=white" alt="Google Cloud">
+</p>
 
 **As eleições estão chegando, e perguntar a uma IA sobre política é um tiro no escuro.**
 Ela não sabe como cada parlamentar votou, não leu os projetos de lei e, sem esse
@@ -26,17 +43,16 @@ Por isso, uma pergunta sobre "apostas esportivas" encontra o projeto que fala em
 "loteria de quota fixa", mesmo sem nenhuma palavra em comum. É assim que a IA liga
 um tema a proposições e, delas, aos votos de cada parlamentar.
 
-Funciona em qualquer cliente MCP (claude.ai, Claude Desktop, Claude Code, Cursor):
+Funciona em qualquer cliente MCP (claude.ai, Claude Desktop, Claude Code, Cursor, VS Code):
 basta conectar a URL do servidor.
 
 
 ## Como rodar o servidor localmente
 
-Pré-requisito: ter [uv](https://docs.astral.sh/uv/#installation) instalado.
+>Pré-requisito: ter [uv](https://docs.astral.sh/uv/#installation) instalado.
 
-Baixe o banco (~2 GB de download, 9,4 GB instalado). O script
-[`scripts/baixar_banco.py`](scripts/baixar_banco.py) baixa do Hugging Face,
-descomprime, confere o SHA-256 e salva em `dados/leis.db`:
+Rode o script abaixo para baixar o banco (~2 GB de download, 9,4 GB instalado) direto do Hugging Face,
+descomprimir, e salvar em `dados/leis.db`:
 
 ```bash
 uv run scripts/baixar_banco.py
@@ -46,15 +62,17 @@ Depois, suba o servidor:
 
 ```bash
 uv sync
-LEIS_AUTH=off uv run leis-mcp          # usa dados/leis.db
+LEIS_AUTH=off uv run leis-mcp
 ```
 
 ## Conectar um cliente
 
+Para que sua IA preferida tenha acesso as ferramentas, conecte dessa forma:
 | Cliente | Como |
 | :--- | :--- |
 | Claude Code | `claude mcp add --transport http leis http://127.0.0.1:8000/mcp` |
 | Cursor | `.cursor/mcp.json`: `{"mcpServers": {"leis": {"url": "http://127.0.0.1:8000/mcp"}}}` |
+| VS Code | Command Palette → **MCP: Add Server** → HTTP → cole a URL, ou `.vscode/mcp.json`: `{"servers": {"leis": {"type": "http", "url": "http://127.0.0.1:8000/mcp"}}}` |
 
 
 ## Stack

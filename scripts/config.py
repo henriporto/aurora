@@ -30,5 +30,5 @@ def _inteiro(nome: str, padrao: int) -> int:
 DB_PATH = _caminho("LEIS_DB_PATH", "dados/leis.db")
 PUBLICAR_DIR = _caminho("LEIS_PUBLICAR_DIR", "dados/publicar")
 ZSTD_NIVEL = _inteiro("LEIS_ZSTD_NIVEL", 9)
-HF_REPO = _texto("LEIS_HF_REPO", "henriporto/leis-mcp")
+HF_REPO = _texto("LEIS_HF_REPO", "henriporto/aurora")
 HF_REVISAO = _texto("LEIS_HF_REVISAO") or None
