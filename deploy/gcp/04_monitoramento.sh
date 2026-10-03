@@ -116,7 +116,7 @@ check_id = uptime.rsplit("/", 1)[-1]
 # arquivos do Docker para o log "docker_leis".
 FILTRO_CHAMADA = f'logName="projects/{P}/logs/docker_leis" AND jsonPayload.log:"chamada ferramenta="'
 ROTULO = {"key": "ferramenta", "valueType": "STRING"}
-EXTRAI_FERRAMENTA = r'REGEXP_EXTRACT(jsonPayload.log, "ferramenta=(\S+)")'
+EXTRAI_FERRAMENTA = r'REGEXP_EXTRACT(jsonPayload.log, "ferramenta=([^ ]+)")'
 metricas = {
     "leis_chamadas": {
         "description": "Chamadas ao leis-mcp por ferramenta e status (ok, erro, negado_*, ocupado)",
@@ -124,7 +124,7 @@ metricas = {
         "metricDescriptor": {"metricKind": "DELTA", "valueType": "INT64", "unit": "1",
                              "labels": [ROTULO, {"key": "status", "valueType": "STRING"}]},
         "labelExtractors": {"ferramenta": EXTRAI_FERRAMENTA,
-                            "status": r'REGEXP_EXTRACT(jsonPayload.log, "status=(\S+)")'},
+                            "status": r'REGEXP_EXTRACT(jsonPayload.log, "status=([^ ]+)")'},
     },
     "leis_duracao_ms": {
         "description": "Duração das chamadas ao leis-mcp (ms), incluindo a espera na fila",
@@ -152,7 +152,8 @@ for nome, corpo in metricas.items():
 
 
 def metrica(nome):
-    return f'metric.type="logging.googleapis.com/user/{nome}"'
+    # Os logs chegam pelo Ops Agent da VM; a API de alertas exige o resource.type.
+    return f'metric.type="logging.googleapis.com/user/{nome}" AND resource.type="gce_instance"'
 
 
 # ---- Alertas ---------------------------------------------------------------

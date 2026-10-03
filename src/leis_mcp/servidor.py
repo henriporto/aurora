@@ -13,6 +13,7 @@ import logging
 from typing import Annotated, Any, Optional
 
 from fastmcp import FastMCP
+from mcp.types import Icon
 from pydantic import Field
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -170,7 +171,9 @@ def criar_servidor(cfg: Config, repositorio: Repositorio) -> FastMCP:
 
     tags: dict[str, set[str]] = {}
     mcp = FastMCP(
-        name="leis",
+        name="Aurora",
+        website_url="https://auroravoto.com.br",
+        icons=[Icon(src="https://auroravoto.com.br/lobo.png", mimeType="image/png")],
         instructions=INSTRUCOES,
         version="0.1.0",
         auth=auth,
