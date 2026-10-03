@@ -51,7 +51,7 @@ basta conectar a URL do servidor.
 
 >Pré-requisito: ter [uv](https://docs.astral.sh/uv/#installation) instalado.
 
-Rode o script abaixo para baixar o banco (~2 GB de download, 9,4 GB instalado) direto do Hugging Face,
+Rode o script abaixo para baixar o banco (~4 GB de download, 12,1 GB instalado) direto do Hugging Face,
 descomprimir, e salvar em `dados/leis.db`:
 
 ```bash
@@ -81,7 +81,7 @@ Para que sua IA preferida tenha acesso as ferramentas, conecte dessa forma:
 | :--- | :--- |
 | Protocolo | MCP, Streamable HTTP sem estado (spec 2026-07-28) · FastMCP 4 |
 | Autenticação | OAuth com login Google (`GoogleProvider` do FastMCP) |
-| Dados | SQLite somente leitura (`leis.db`, 9,4 GB): relacional + FTS5 + vetores |
+| Dados | SQLite somente leitura (`leis.db`, 12,1 GB): relacional + FTS5 + vetores |
 | Busca | híbrida densa + BM25 fundida por RRF (k=60) · Qwen3-Embedding-0.6B em CPU · NumPy |
 | Usuários e uso | SQLite (`usuarios.db`): papéis, cotas diárias, registro de cada chamada |
 | Execução | Python 3.12 · `uv` · Docker Compose com Caddy (HTTPS automático) |
@@ -131,8 +131,10 @@ preencher: `como_votou`, `como_votou_partido`, `quem_se_alinha`, `quem_propos`,
 
 A base possui dados de `2018-02-07` a `2026-09-03`.
 
-| Proposições | 429.292 |
+| Proposições | 429.825 |
 | :--- | ---: |
 | Votos nominais individuais | 1.303.357 (3.773 votações) |
+| Votações simbólicas (decisão sem voto individual) | 8.979 |
+| Proposições com situação de tramitação | 429.816 |
 | Trechos de inteiro teor indexados | 741.519 |
 | Parlamentares | 1.630 |

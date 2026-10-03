@@ -573,7 +573,9 @@ def placar_por_votacao(
                 SELECT vt.id_votacao, vt.id_proposicao, vt.data, vt.descricao, vt.casa,
                        p.sigla_tipo, p.numero, p.ano
                 FROM votacoes vt JOIN proposicoes p ON p.id_proposicao = vt.id_proposicao
-                WHERE vt.id_proposicao IN ({marcadores})
+                -- Placar é contagem de voto individual; votação simbólica não
+                -- tem nenhum e apareceria como um placar vazio.
+                WHERE vt.id_proposicao IN ({marcadores}) AND vt.tem_voto_nominal = 1
                 """,
                 lote,
             ).fetchall()
@@ -737,6 +739,58 @@ def placar_por_votacao(
 # ---------------------------------------------------------------------------
 
 
+# Os cinco status que a regra 2-B trata como AUSÊNCIA DE DADO. Nenhum deles
+# entra em `proposicoes_com_votacao_em_que_nao_votou`, porque um id nesse campo
+# se lê como omissão da pessoa. `AUSENTE` está na lista de propósito: no Senado
+# ele vem com `motivo_oficial` (licença, missão, não compareceu), e chamar uma
+# licença médica de "não votou" é o mesmo erro, só mais difícil de perceber.
+_SEM_VOTO_QUE_NAO_E_FALTA = frozenset(
+    {"AUSENTE", "OUTRA_CASA", "FORA_DE_EXERCICIO", "SEM_VOTACAO_NOMINAL", "FORA_DA_BASE"}
+)
+
+
+def _sem_voto_detalhado(id_parlamentar: int, ids_sem_voto: list[int]) -> dict[str, Any]:
+    """
+    Separa "não votou" de "não tinha como votar", nas proposições sem voto dele.
+
+    Usa `status_por_proposicao`, a MESMA função que alimenta `consultar_votos`.
+    Antes esta ferramenta decidia por conta própria — só olhava se a proposição
+    tinha votação nominal — e uma deputada da Câmara aparecia como tendo faltado
+    a uma votação do Senado. As duas ferramentas respondiam coisas contrárias
+    sobre o mesmo fato; derivar as duas do mesmo lugar é o que impede a
+    divergência de voltar.
+    """
+    if not ids_sem_voto:
+        return {"proposicoes_com_votacao_em_que_nao_votou": []}
+
+    faltou: list[int] = []
+    impedido: list[dict[str, Any]] = []
+    for item in status_por_proposicao(id_parlamentar, ids_sem_voto):
+        if item.get("status") in _SEM_VOTO_QUE_NAO_E_FALTA:
+            registro = {
+                "id_proposicao": item.get("id_proposicao"),
+                "proposicao": item.get("proposicao"),
+                "status": item.get("status"),
+                "observacao": item.get("observacao"),
+            }
+            if item.get("motivo_oficial"):
+                registro["motivo_oficial"] = item["motivo_oficial"]
+            impedido.append(registro)
+        else:
+            faltou.append(item["id_proposicao"])
+
+    saida: dict[str, Any] = {"proposicoes_com_votacao_em_que_nao_votou": faltou}
+    if impedido:
+        saida["proposicoes_sem_voto_por_impedimento"] = impedido
+        saida["aviso_impedimento"] = (
+            f"{len(impedido)} proposição(ões) ficaram FORA de "
+            "`proposicoes_com_votacao_em_que_nao_votou`: votação da outra casa, fora do mandato, sem votação "
+            "nominal, ou ausência com motivo oficial registrado. Nenhum desses é posicionamento nem omissão "
+            "política — estão em `proposicoes_sem_voto_por_impedimento`, com o status e o motivo de cada uma."
+        )
+    return saida
+
+
 def posicao_consolidada(
     ids_parlamentares: list[int],
     lista_ids: list[int],
@@ -792,7 +846,10 @@ def posicao_consolidada(
             com_votacao |= {
                 r[0]
                 for r in conn.execute(
-                    f"SELECT DISTINCT id_proposicao FROM votacoes WHERE id_proposicao IN ({mi})",
+                    # Numa votação simbólica ninguém tem voto individual, e a
+                    # ausência viraria omissão do parlamentar.
+                    f"SELECT DISTINCT id_proposicao FROM votacoes WHERE id_proposicao IN ({mi}) "
+                    "AND tem_voto_nominal = 1",
                     lote_i,
                 )
             }
@@ -852,12 +909,15 @@ def posicao_consolidada(
                 "proposicoes": proposicoes,
                 "tipos_de_voto_no_conjunto": sorted(tipos_no_conjunto),
                 "votou_de_formas_diferentes_no_conjunto": len(tipos_no_conjunto) > 1,
-                "proposicoes_com_votacao_em_que_nao_votou": [
-                    i
-                    for i in ids
-                    if i in com_votacao
-                    and i not in {p["id_proposicao"] for p in proposicoes}
-                ],
+                **_sem_voto_detalhado(
+                    pid_parl,
+                    [
+                        i
+                        for i in ids
+                        if i in com_votacao
+                        and i not in {p["id_proposicao"] for p in proposicoes}
+                    ],
+                ),
             }
         )
 

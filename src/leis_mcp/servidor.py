@@ -104,6 +104,7 @@ def _esquema_do_banco() -> str:
         "relatorias",
         "votos",
         "votacoes",
+        "proposicoes_situacao",
         "proposicoes_chunks",
     )
     linhas = ["ESQUEMA DO BANCO LEGISLATIVO (lido do arquivo em uso)", ""]
@@ -121,6 +122,18 @@ def _esquema_do_banco() -> str:
         "- `votos.partido_voto` é o partido NA DATA DO VOTO; `parlamentares.partido` é o atual. Para bancada, use sempre o primeiro. A sigla é a crua de cada fonte: a mesma legenda aparece como PODE (Câmara) e PODEMOS (Senado), e renomeações mudam a sigla (PR→PL, PRB→REPUBLICANOS, PPS→CIDADANIA, PMDB→MDB, SD→SOLIDARIEDADE, PEN/PATRI→PATRIOTA). Filtre com `IN` de todas.",
         "- Uma proposição tem várias votações: agrupe por `id_votacao` e traga `votacoes.descricao` no SELECT. "
         "Somar votações diferentes produz placar que não corresponde a decisão nenhuma.",
+        "- `votacoes` inclui votação SIMBÓLICA, em que ninguém é registrado individualmente: "
+        "`tem_voto_nominal = 0` e nenhuma linha em `votos`. Isso é decisão sem nomes, NUNCA "
+        "'não foi votada'. Para contar votação nominal, filtre `tem_voto_nominal = 1`.",
+        "- `votacoes.aprovacao` (1/0/NULL) é o campo cru da API da Câmara e vale para o OBJETO daquela "
+        "votação — uma redação final, um requerimento de urgência, um destaque —, NÃO para a proposição. "
+        "Leia sempre junto com `descricao`. NULL é ausência de dado, não reprovação.",
+        "- `proposicoes_situacao` é o estado da matéria (1 linha por proposição), e não tem relação com "
+        "voto de parlamentar: 'Aprovada pelo Plenário' ali é fato sobre a matéria, nunca sobre alguém. "
+        "As strings são as oficiais de cada casa e NÃO são unificadas (a Câmara escreve 'Transformado em "
+        "Norma Jurídica', o Senado 'TRANSFORMADA EM NORMA JURÍDICA'); compare com LIKE, não com igualdade. "
+        "Colunas `tramitacao`/`orgao`/`despacho`/`apreciacao` só existem para a Câmara, e `tramitando`/"
+        "`deliberacao`/`norma_gerada` só para o Senado.",
         "- A mesma proposição pode existir duas vezes, com IDs diferentes, quando tramita nas duas casas: "
         "`proposicoes_equivalentes(id_camara, id_senado)`. Números anteriores (a Câmara renumera) ficam em "
         "`proposicoes_identificacoes`.",
@@ -381,16 +394,18 @@ def criar_servidor(cfg: Config, repositorio: Repositorio) -> FastMCP:
                 description="Segundo radical para desambiguar (ex.: termo='intelig', termo_secundario='artificial')."
             ),
         ] = None,
-        aceitar_radical_amplo: Annotated[
+        confirmar_radical: Annotated[
             bool,
             Field(
-                description="true só depois de RADICAL_AMBIGUO, quando as famílias de palavras forem o mesmo tema."
+                description="Radical com menos de 8 letras devolve PREVIA_DO_RADICAL (o que ele alcança, "
+                "com ementas de exemplo) em vez de nomes. Leia, e repita com true se as famílias forem "
+                "todas do seu assunto."
             ),
         ] = False,
         pagina: Pagina = None,
     ) -> dict[str, Any]:
         return autoria.mapear_autores_por_tema(
-            termo, termo_secundario, aceitar_radical_amplo, pagina
+            termo, termo_secundario, confirmar_radical, pagina
         )
 
     @ferramenta("proposicoes_por_autor_institucional", d.AUTOR_INSTITUCIONAL)

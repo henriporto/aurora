@@ -10,3 +10,10 @@ docs/
 *.db-wal
 *.db-shm
 *.csv
+.env
+deploy/gcp/config.sh
+pessoal/
+etl/
+logs/
+avaliacao/
+.ruff_cache

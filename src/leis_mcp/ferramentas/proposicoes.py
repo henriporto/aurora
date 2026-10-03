@@ -152,7 +152,10 @@ def _detalhar(conn, linhas) -> list[dict[str, Any]]:
         ):
             iniciativa.setdefault(pid, []).append(_rotulo_autor(nome, partido, uf))
         for pid, n in conn.execute(
-            f"SELECT id_proposicao, COUNT(*) FROM votacoes WHERE id_proposicao IN ({marcadores}) GROUP BY 1",
+            # `tem_voto_nominal = 1`: o campo devolvido se chama
+            # `votacoes_nominais`. `votacoes` também guarda as simbólicas.
+            f"SELECT id_proposicao, COUNT(*) FROM votacoes WHERE id_proposicao IN ({marcadores}) "
+            "AND tem_voto_nominal = 1 GROUP BY 1",
             lote,
         ):
             votacoes[pid] = n
@@ -413,18 +416,63 @@ def _confianca(item: dict[str, Any]) -> str:
     """
     Confiança de UM resultado, sem filtrar nada.
 
-    `alta`: o texto contém os termos (casamento lexical na ementa ou num
-    trecho) ou a ementa se destaca muito do acervo para o termo (destaque ≥
-    2,0). `moderada`: destaque entre 1,5 e 2,0. `baixa`: o resto. Faixas
-    medidas com Qwen3 em avaliacao/embeddings/README.md: a matéria central de
-    cada tema tem destaque mediano de 2,24; consultas sem sentido, ~1,6.
+    São DOIS sinais medidos, de naturezas diferentes: `casamento_lexical` é o
+    BM25 do FTS5 dizendo que o termo aparece no texto, e `destaque_semantico` é
+    o quanto a ementa se afasta do acervo para aquele termo. Faixas medidas com
+    Qwen3 em avaliacao/embeddings/README.md: a matéria central de cada tema tem
+    destaque mediano de 2,24; consultas sem sentido, ~1,6.
+
+    Quando os dois concordam, o rótulo vale. Quando se contradizem — o termo
+    aparece no texto E o vetor diz que o documento não trata daquilo — esta
+    função NÃO arbitra: devolve `indeterminada`, e os dois números seguem no
+    resultado para quem lê decidir.
+
+    Era aqui que um veto de crédito suplementar de R$ 2,15 bi saía como
+    `alta` para "saneamento básico", com destaque 0,46 — abaixo até do limiar
+    de `moderada`. O casamento era o nome de um programa orçamentário dentro do
+    anexo. O booleano ganhava do número sempre, por construção; comprimir dois
+    sinais discordantes num veredito é o mesmo erro da antiga coluna
+    `natureza`, e a saída é não comprimir.
     """
     d = item.get("destaque_semantico")
-    if item.get("casamento_lexical") or (d is not None and d >= LIMIAR_DESTAQUE_ALTO):
+    lexical = bool(item.get("casamento_lexical"))
+    if d is None:
+        # Sem vetor não há segundo sinal para conferir: o lexical é tudo o que
+        # existe, e vale pelo que é.
+        return "alta" if lexical else "baixa"
+    if d >= LIMIAR_DESTAQUE_ALTO:
         return "alta"
-    if d is not None and d >= LIMIAR_DESTAQUE_MODERADO:
-        return "moderada"
+    if lexical and d < LIMIAR_DESTAQUE_MODERADO:
+        return "indeterminada"
+    if lexical or d >= LIMIAR_DESTAQUE_MODERADO:
+        return "alta" if lexical else "moderada"
     return "baixa"
+
+
+def _motivo_da_confianca(item: dict[str, Any]) -> str:
+    """Em uma frase, de onde veio a confiança — para a LLM ler o sinal, não o rótulo."""
+    d = item.get("destaque_semantico")
+    lexical = bool(item.get("casamento_lexical"))
+    if d is None:
+        return (
+            "os termos aparecem no texto; esta proposição não tem vetor, então não há medida semântica para conferir"
+            if lexical
+            else "os termos não aparecem no texto e não há vetor para comparar"
+        )
+    if lexical and d < LIMIAR_DESTAQUE_MODERADO:
+        return (
+            f"os termos APARECEM no texto, mas o destaque semântico é {d} — abaixo de "
+            f"{LIMIAR_DESTAQUE_MODERADO}, a faixa de consultas sem sentido. Os dois sinais se contradizem: "
+            "costuma ser menção de passagem, nome de programa em anexo ou citação de outra lei. "
+            "Confira o trecho antes de usar como fonte."
+        )
+    if lexical:
+        return f"os termos aparecem no texto e o destaque semântico ({d}) acompanha"
+    if d >= LIMIAR_DESTAQUE_ALTO:
+        return f"os termos não aparecem literalmente, mas o destaque semântico é alto ({d})"
+    if d >= LIMIAR_DESTAQUE_MODERADO:
+        return f"os termos não aparecem literalmente e o destaque semântico é intermediário ({d})"
+    return f"os termos não aparecem no texto e o destaque semântico é baixo ({d})"
 
 
 def _calcular_busca(
@@ -573,6 +621,7 @@ def _calcular_busca(
             "trechos_relevantes_inteiro_teor": [t["texto"] for t in trechos[:MAX_TRECHOS_POR_PROPOSICAO]],
         }
         item["confianca"] = _confianca(item)
+        item["motivo_da_confianca"] = _motivo_da_confianca(item)
         if somente_votadas:
             item["tem_votacao_nominal"] = True
         resultados.append(item)
@@ -581,14 +630,22 @@ def _calcular_busca(
     if resultados:
         topo = resultados[: min(10, len(resultados))]
         baixas = sum(1 for r in topo if r["confianca"] == "baixa")
+        indefinidas = sum(1 for r in topo if r["confianca"] == "indeterminada")
         if not any(r["confianca"] == "alta" for r in topo):
             avisos.append(
                 f"ATENÇÃO: nenhum dos primeiros resultados contém os termos {list(termos)} nem se destaca "
-                "do acervo semanticamente (`confianca` baixa ou moderada em todos). É provável que não haja "
+                "do acervo semanticamente. É provável que não haja "
                 "proposição sobre o tema com esse vocabulário. Confira a ementa de cada um antes de usá-lo; "
                 "se nenhum tratar do tema, diga que não encontrou, ou refaça com sinônimos em português."
             )
-        elif baixas > len(topo) // 2:
+        if indefinidas:
+            avisos.append(
+                f"{indefinidas} dos {len(topo)} primeiros resultados têm `confianca: indeterminada`: os termos "
+                "APARECEM no texto, mas a medida semântica diz que a proposição não trata do assunto. Leia "
+                "`motivo_da_confianca` e o trecho antes de usar — é o padrão de menção de passagem, nome de "
+                "programa em anexo ou citação de outra lei. Não trate como fonte do tema sem conferir."
+            )
+        if baixas > len(topo) // 2:
             avisos.append(
                 f"{baixas} dos {len(topo)} primeiros resultados têm `confianca: baixa` (sem os termos no "
                 "texto e sem destaque semântico). Use só os que a ementa confirma serem do tema."
@@ -684,6 +741,7 @@ def busca_semantica_proposicoes(
             "proposicao": f"{r['sigla_tipo']} {r['numero']}/{r['ano']}",
             "casa": r["casa"],
             "confianca": r["confianca"],
+            "motivo_da_confianca": r.get("motivo_da_confianca"),
         }
         for i, r in enumerate(completo["resultados"], 1)
     ]

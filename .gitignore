@@ -34,9 +34,10 @@ deploy/gcp/config.env
 *.log
 etl/*.done
 
-/pessoal/
-/docs/
+/pessoal
+# /docs/* (e não /docs/): com a pasta inteira ignorada, o git não consegue
+# reincluir um arquivo dela.
+/docs
 /etl
 /avaliacao
 
-!docs/ferramentas.md

@@ -242,6 +242,79 @@ class Repositorio:
                 params,
             ).fetchone()[0]
 
+    def reservar_chamada(
+        self,
+        usuario_id: int,
+        ferramenta: str,
+        argumentos: Optional[dict[str, Any]],
+        limite: Optional[int],
+        ignorar: tuple[str, ...] = (),
+    ) -> tuple[Optional[int], int]:
+        """
+        Conta as chamadas de hoje e, se houver cota, grava a chamada ANTES de
+        executá-la, na mesma transação (`BEGIN IMMEDIATE`).
+
+        Contar só as chamadas já terminadas deixava passar da cota quem dispara
+        várias em paralelo: todas liam a mesma contagem. Reservada aqui, a
+        chamada em andamento já conta para as seguintes.
+
+        Devolve (id da chamada, usadas antes dela); id None = cota esgotada.
+        `limite` None = sem cota (admin, ferramenta livre, cota ilimitada).
+        """
+        filtro = ""
+        params: list[Any] = [usuario_id, self.inicio_do_dia_utc()]
+        if ignorar:
+            filtro = f" AND ferramenta NOT IN ({','.join('?' * len(ignorar))})"
+            params.extend(ignorar)
+        with self._conexao() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            usadas = 0
+            if limite is not None:
+                usadas = conn.execute(
+                    f"SELECT COUNT(*) FROM chamadas WHERE usuario_id = ? AND status IN {STATUS_QUE_CONSOMEM} "
+                    "AND criado_em >= ?" + filtro,
+                    params,
+                ).fetchone()[0]
+                if usadas >= limite:
+                    return None, usadas
+            cursor = conn.execute(
+                "INSERT INTO chamadas (usuario_id, ferramenta, argumentos, status, criado_em) "
+                "VALUES (?, ?, ?, 'ok', ?)",
+                (
+                    usuario_id,
+                    ferramenta,
+                    json.dumps(argumentos or {}, ensure_ascii=False, default=str),
+                    agora_utc(),
+                ),
+            )
+            return cursor.lastrowid, usadas
+
+    def finalizar_chamada(
+        self,
+        chamada_id: int,
+        status: str,
+        duracao_ms: Optional[int] = None,
+        tamanho_resposta: Optional[int] = None,
+        erro: Optional[str] = None,
+    ) -> None:
+        with self._conexao() as conn:
+            conn.execute(
+                "UPDATE chamadas SET status = ?, duracao_ms = ?, tamanho_resposta = ?, erro = ? "
+                "WHERE id = ?",
+                (
+                    status,
+                    duracao_ms,
+                    tamanho_resposta,
+                    (erro or "")[:2000] or None,
+                    chamada_id,
+                ),
+            )
+
+    def cancelar_chamada(self, chamada_id: int) -> None:
+        """Apaga uma reserva que não chegou a executar (servidor ocupado)."""
+        with self._conexao() as conn:
+            conn.execute("DELETE FROM chamadas WHERE id = ?", (chamada_id,))
+
     def registrar_chamada(
         self,
         usuario_id: int,

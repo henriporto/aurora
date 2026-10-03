@@ -85,6 +85,11 @@ def candidatos(conn: sqlite3.Connection) -> list[tuple[str, str]]:
           ON a.casa = b.casa AND substr(a.data, 1, 16) = substr(b.data, 1, 16)
          AND a.descricao = b.descricao AND a.total_votos = b.total_votos
          AND a.id_votacao < b.id_votacao
+        -- Só votação com voto individual: é de `votos` que este script apaga,
+        -- e uma simbólica não tem o que apagar. Hoje elas já ficariam de fora
+        -- sozinhas, porque `total_votos` é NULL nelas e NULL = NULL é falso em
+        -- SQL — mas isso é acidente de semântica, não intenção declarada.
+        WHERE a.tem_voto_nominal = 1 AND b.tem_voto_nominal = 1
         """
     ).fetchall()
 

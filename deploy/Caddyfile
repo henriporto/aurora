@@ -24,8 +24,17 @@
 		-Server
 	}
 
+	# O log de acesso vai para o Cloud Logging (Ops Agent). O retorno do login
+	# (/auth/callback) traz na URL o código de autorização e o state do OAuth:
+	# são de uso único, mas não precisam ficar gravados.
 	log {
 		output stdout
-		format console
+		format filter {
+			request>uri query {
+				replace code REDACTED
+				replace state REDACTED
+			}
+			wrap console
+		}
 	}
 }

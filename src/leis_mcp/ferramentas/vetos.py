@@ -103,8 +103,16 @@ def consultar_vetos_presidenciais(
             lista_ids=[r[0] for r in linhas],
             top_k=len(linhas),
         )
-        relevantes = [v for v in busca.get("resultados", []) if v.get("confianca") != "baixa"]
-        demais = [v for v in busca.get("resultados", []) if v.get("confianca") == "baixa"]
+        # Três baldes, não dois. `indeterminada` é o caso em que os termos
+        # aparecem no texto mas a medida semântica diz que o documento não trata
+        # daquilo: não dá para afirmar que se relaciona, nem para dizer que não.
+        # Empurrá-lo para `relevantes` (o que acontecia quando o teste era só
+        # `!= "baixa"`) fazia um crédito suplementar de R$ 2,15 bi entrar como
+        # veto sobre saneamento básico.
+        resultados = busca.get("resultados", [])
+        relevantes = [v for v in resultados if v.get("confianca") in ("alta", "moderada")]
+        indeterminados = [v for v in resultados if v.get("confianca") == "indeterminada"]
+        demais = [v for v in resultados if v.get("confianca") == "baixa"]
         itens, paginacao = paginar(relevantes, pagina, reserva=len(str(demais)) + 3_000)
         saida = {
             "paginacao": paginacao,
@@ -112,11 +120,36 @@ def consultar_vetos_presidenciais(
             "termo": termo,
             "vetos_relacionados_ao_termo": len(relevantes),
             "vetos": itens,
-            "vetos_sem_relacao_aparente": [
-                {"id_proposicao": v["id_proposicao"], "veto": f"VET {v['numero']}/{v['ano']}"}
-                for v in demais
+            "vetos_de_relacao_indefinida": [
+                {
+                    "id_proposicao": v["id_proposicao"],
+                    "veto": f"VET {v['numero']}/{v['ano']}",
+                    "ementa": v.get("ementa"),
+                    "motivo_da_confianca": v.get("motivo_da_confianca"),
+                    "trecho_encontrado": v.get("trecho_encontrado"),
+                }
+                for v in indeterminados
             ],
+            # A lista inteira só na página 1. São 181 itens (9 KB) num caso
+            # medido, contra 13,5 KB de resposta: repeti-la nas 3 páginas
+            # gastava 27 KB de contexto para dizer três vezes a mesma coisa.
+            # Mesmo critério de `placar_por_votacao`: o que é pequeno repete em
+            # toda página, o que é grande fica numa só.
+            "vetos_sem_relacao_aparente": (
+                [
+                    {"id_proposicao": v["id_proposicao"], "veto": f"VET {v['numero']}/{v['ano']}"}
+                    for v in demais
+                ]
+                if paginacao.get("pagina", 1) == 1
+                else []
+            ),
+            "total_sem_relacao_aparente": len(demais),
         }
+        if demais and paginacao.get("pagina", 1) != 1:
+            avisos.append(
+                f"Os {len(demais)} vetos sem relação aparente com '{termo}' estão listados na PÁGINA 1, "
+                "não nesta. O número acima é o total; a lista não se repete a cada página."
+            )
         # Os avisos de confiança da busca não se aplicam: aqui os de confiança
         # baixa já estão separados em `vetos_sem_relacao_aparente`.
         avisos = [
@@ -125,6 +158,13 @@ def consultar_vetos_presidenciais(
             if not a.startswith(("RESULTADO PAGINADO", "ATENÇÃO: nenhum", ))
             and "`confianca: baixa`" not in a
         ] + avisos
+        if indeterminados:
+            avisos.append(
+                f"{len(indeterminados)} veto(s) estão em `vetos_de_relacao_indefinida`: o termo '{termo}' "
+                "APARECE no texto, mas a medida semântica diz que o documento não trata do assunto — típico "
+                "de menção de passagem, nome de programa em anexo ou citação de outra lei. NÃO os apresente "
+                "como vetos sobre o tema sem antes ler o trecho; e não os descarte em silêncio."
+            )
         if not relevantes:
             avisos.append(
                 f"Nenhum dos {len(linhas)} vetos do período contém '{termo}' ou trata claramente do tema. "

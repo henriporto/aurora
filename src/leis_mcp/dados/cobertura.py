@@ -88,14 +88,27 @@ def alcance() -> dict:
     with _trava:
         if _alcance is None:
             with conexao() as conn:
+                # `tem_voto_nominal = 1` em toda contagem que o texto chama de
+                # "nominal": desde que as votações simbólicas passaram a ser
+                # ingeridas, `votacoes` tem as duas coisas, e contar tudo aqui
+                # fazia o guia anunciar 12.752 votações nominais e 0,9% de
+                # cobertura, contradizendo o 0,3% que ele afirma duas vezes.
                 primeiro, ultimo, n_votacoes = conn.execute(
                     "SELECT MIN(substr(data, 1, 10)), MAX(substr(data, 1, 10)), COUNT(*) "
-                    "FROM votacoes"
+                    "FROM votacoes WHERE tem_voto_nominal = 1"
                 ).fetchone()
                 n_props = conn.execute("SELECT COUNT(*) FROM proposicoes").fetchone()[0]
                 com_voto = conn.execute(
-                    "SELECT COUNT(DISTINCT id_proposicao) FROM votacoes"
+                    "SELECT COUNT(DISTINCT id_proposicao) FROM votacoes "
+                    "WHERE tem_voto_nominal = 1"
                 ).fetchone()[0]
+                # As simbólicas são decisão sem nomes, e o guia precisa dizer
+                # que elas existem: é o que separa "não temos como saber o voto
+                # de ninguém" de "esta proposição nunca foi votada".
+                n_simbolicas, com_alguma = conn.execute(
+                    "SELECT (SELECT COUNT(*) FROM votacoes WHERE tem_voto_nominal = 0), "
+                    "(SELECT COUNT(DISTINCT id_proposicao) FROM votacoes)"
+                ).fetchone()
                 # Só votos com posição; ausências oficiais registradas não contam.
                 n_votos = conn.execute(
                     "SELECT COUNT(*) FROM votos WHERE tipo_voto NOT IN "
@@ -112,9 +125,11 @@ def alcance() -> dict:
                 "votacoes_primeira_data": primeiro,
                 "votacoes_ultima_data": ultimo,
                 "votacoes_nominais": n_votacoes,
+                "votacoes_simbolicas": n_simbolicas,
                 "votos_individuais": n_votos,
                 "proposicoes": n_props,
                 "proposicoes_com_votacao_nominal": com_voto,
+                "proposicoes_com_alguma_votacao": com_alguma,
                 "parlamentares": n_parl,
                 "trechos_de_inteiro_teor": n_chunks,
             }
@@ -133,13 +148,20 @@ def texto_de_alcance() -> str:
         "individual registrado fora desse intervalo; matéria votada antes disso não tem como ser respondida "
         "com voto nominal, e dizer isso é a resposta certa.\n"
         f"   - Proposições: {br(a['proposicoes'])} no acervo, das quais "
-        f"{br(a['proposicoes_com_votacao_nominal'])} ({pct}%) têm ao menos uma votação nominal. A esmagadora "
-        "maioria nunca foi a voto nominal — normalmente por deliberação simbólica.\n"
+        f"{br(a['proposicoes_com_votacao_nominal'])} ({pct}%) têm ao menos uma votação nominal.\n"
+        f"   - Votações SIMBÓLICAS registradas: {br(a['votacoes_simbolicas'])}. Nelas houve decisão e NÃO há "
+        "voto individual de ninguém — os líderes orientam e o painel não é aberto. Somando as duas formas, "
+        f"{br(a['proposicoes_com_alguma_votacao'])} proposições têm alguma votação registrada. Por isso "
+        "'sem votação nominal' NÃO quer dizer 'nunca foi votada': pode ter sido aprovada por acordo, e a "
+        "diferença está em `votacoes.tem_voto_nominal`.\n"
         f"   - O acervo de proposições é mais amplo que o de votos: uma proposição anterior a {primeiro} pode "
         "existir na base sem nenhum voto associado.\n"
         f"   - Parlamentares cadastrados: {br(a['parlamentares'])}. Trechos de inteiro teor indexados: "
         f"{br(a['trechos_de_inteiro_teor'])}.\n"
-        "   - Relatorias: só da Câmara. Não há orientação de bancada nem discursos na base.\n"
+        "   - Relatorias: só da Câmara. Não há orientação de bancada na base.\n"
+        "   - Discursos: a base guarda o inteiro teor de falas em plenário das duas casas, mas NENHUMA "
+        "ferramenta os expõe hoje. Não afirme nada sobre o que alguém disse em plenário; se a pergunta for "
+        "sobre discurso, diga que esse dado ainda não está disponível por ferramenta.\n"
     )
 
 

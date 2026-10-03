@@ -11,7 +11,7 @@ Por que não copiar o arquivo direto:
    óbvias. A cópia sai em `journal_mode=DELETE`, um arquivo único.
 2. A API de backup do SQLite produz uma cópia consistente mesmo que o banco de
    origem esteja aberto por outro processo (o ETL, por exemplo).
-3. O SHA-256 gravado ao lado permite conferir, na VM, que os 5,5 GB chegaram
+3. O SHA-256 gravado ao lado permite conferir, na VM, que os ~9 GB chegaram
    íntegros antes de trocar o banco em uso.
 
 Só usa a biblioteca padrão: roda com qualquer Python 3.10+.
@@ -26,10 +26,12 @@ import sys
 import time
 from pathlib import Path
 
+#: As mesmas de TABELAS_OBRIGATORIAS (src/leis_mcp/dados/banco.py): sem uma delas
+#: o servidor não sobe, e é melhor saber antes de enviar o arquivo.
 TABELAS = (
     "proposicoes", "parlamentares", "autoria", "relatorias", "votos", "votacoes",
     "proposicoes_fts", "proposicoes_embeddings", "proposicoes_chunks",
-    "proposicoes_chunks_embeddings", "proposicoes_chunks_fts",
+    "proposicoes_chunks_embeddings", "proposicoes_chunks_fts", "autores_proposicao",
 )  # fmt: skip
 
 

@@ -5,9 +5,13 @@
 #
 #   bash deploy/gcp/02_enviar_banco.sh
 set -euo pipefail
+# Com IAP=1 no ambiente, o SSH/SCP passa pelo túnel do Identity-Aware Proxy
+# (é assim que o GitHub Actions entra na VM, sem porta 22 aberta ao mundo).
+# Sem isso, segue o SSH direto de sempre.
 DIR="$(cd "$(dirname "$0")" && pwd)"
 RAIZ="$(cd "$DIR/../.." && pwd)"
 source "$DIR/config.sh"
+TUNEL=${IAP:+--tunnel-through-iap}
 
 VERSAO="leis-$(date +%Y%m%d-%H%M%S).db"
 LOCAL="$RAIZ/dados/$VERSAO"
@@ -16,11 +20,23 @@ echo "==> Preparando cópia de produção ($VERSAO)"
 case "$BANCO_LOCAL" in /*) ORIGEM="$BANCO_LOCAL" ;; *) ORIGEM="$RAIZ/$BANCO_LOCAL" ;; esac
 python3 "$RAIZ/scripts/preparar_banco.py" "$ORIGEM" "$LOCAL"
 
-echo "==> Enviando para a VM (5,5 GB; demora conforme sua conexão)"
-gcloud compute scp --zone "$ZONA" --compress "$LOCAL" "$LOCAL.sha256" "$NOME_VM":/tmp/
+TAMANHO_GB=$(( $(stat -c %s "$LOCAL") / 1000000000 + 1 ))
+echo "==> Conferindo espaço na VM (${TAMANHO_GB} GB em /tmp e depois em /srv/leis/banco)"
+LIVRE_GB=$(gcloud compute ssh "$NOME_VM" --zone "$ZONA" $TUNEL --quiet -- df -BG --output=avail /srv/leis | tail -1 | tr -dc 0-9)
+# O arquivo chega em /tmp e é movido no mesmo disco; no pico ficam no disco a
+# versão em uso, a anterior e a nova. Sobram 5 GB para imagens e logs.
+if [ "$LIVRE_GB" -lt $(( TAMANHO_GB + 5 )) ]; then
+  echo "Espaço insuficiente na VM: ${LIVRE_GB} GB livres, precisa de $(( TAMANHO_GB + 5 )) GB." >&2
+  echo "Apague a versão anterior (sudo rm /srv/leis/banco/leis.anterior.db e o arquivo para onde ele aponta) ou aumente DISCO_GB." >&2
+  rm -f "$LOCAL" "$LOCAL.sha256"
+  exit 1
+fi
+
+echo "==> Enviando para a VM (${TAMANHO_GB} GB; demora conforme sua conexão)"
+gcloud compute scp --zone "$ZONA" $TUNEL --quiet --compress "$LOCAL" "$LOCAL.sha256" "$NOME_VM":/tmp/
 
 echo "==> Conferindo integridade e trocando o banco"
-gcloud compute ssh "$NOME_VM" --zone "$ZONA" -- bash -s <<REMOTO
+gcloud compute ssh "$NOME_VM" --zone "$ZONA" $TUNEL --quiet -- bash -s <<REMOTO
 set -euo pipefail
 cd /tmp
 sha256sum -c "$VERSAO.sha256"

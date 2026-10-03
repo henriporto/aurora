@@ -1,0 +1,119 @@
+# Deploy do leis-mcp na VM do Google Cloud.
+
+name: Deploy no GCP
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "deploy/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/deploy.yml"
+  workflow_dispatch:
+    inputs:
+      forcar_banco:
+        description: "Reinstalar o banco do Hugging Face mesmo se o SHA-256 for igual"
+        type: boolean
+        default: false
+      pular_banco:
+        description: "Publicar só o código, sem tocar no banco"
+        type: boolean
+        default: false
+
+# Dois deploys ao mesmo tempo disputariam a mesma VM e o mesmo /srv/leis/app.
+# Sem cancelar o que está no meio: interromper um `docker compose up` deixa a VM
+# num estado pela metade.
+concurrency:
+  group: deploy-producao
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write # necessário para o OIDC do Workload Identity Federation
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: producao
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Autenticar no Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVEDOR }}
+          service_account: ${{ vars.GCP_SA_DEPLOY }}
+
+      - name: Instalar o gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Montar deploy/gcp/config.sh
+        env:
+          PROJETO: ${{ vars.GCP_PROJETO }}
+          ZONA: ${{ vars.GCP_ZONA }}
+          NOME_VM: ${{ vars.GCP_VM }}
+          BUCKET_BACKUP: ${{ vars.GCP_BUCKET_BACKUP }}
+          HF_REPO_BANCO: ${{ vars.HF_REPO_BANCO }}
+        run: |
+          set -euo pipefail
+          # Só o que os scripts usam nesta máquina. O restante (EMAIL_ALERTAS,
+          # TIPO_MAQUINA…) é do 01 e do 04, que não rodam no CI.
+          cat > deploy/gcp/config.sh <<EOF
+          PROJETO="${PROJETO}"
+          ZONA="${ZONA}"
+          REGIAO="${ZONA%-*}"
+          NOME_VM="${NOME_VM}"
+          TAG_REDE="leis-mcp"
+          BUCKET_BACKUP="${BUCKET_BACKUP}"
+          HF_REPO_BANCO="${HF_REPO_BANCO}"
+          EOF
+          gcloud config set project "$PROJETO" --quiet
+
+      - name: Montar deploy/.env
+        env:
+          LEIS_DOMINIO: ${{ secrets.LEIS_DOMINIO }}
+          LEIS_URL_PUBLICA: ${{ secrets.LEIS_URL_PUBLICA }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          LEIS_JWT_CHAVE: ${{ secrets.LEIS_JWT_CHAVE }}
+          LEIS_ADMINS: ${{ secrets.LEIS_ADMINS }}
+        run: bash deploy/gcp/montar_env.sh
+
+      - name: Instalar o banco do Hugging Face na VM
+        if: ${{ !inputs.pular_banco }}
+        env:
+          IAP: "1"
+        run: |
+          bash deploy/gcp/02_banco_do_hf.sh \
+            ${{ inputs.forcar_banco && '--forcar' || '' }}
+
+      - name: Publicar o código e subir os contêineres
+        env:
+          IAP: "1"
+        run: bash deploy/gcp/03_publicar_app.sh
+
+      - name: Conferir o /saude público
+        env:
+          DOMINIO: ${{ secrets.LEIS_DOMINIO }}
+        run: |
+          set -euo pipefail
+          # O 03 já esperou o healthcheck do contêiner ficar verde; aqui a
+          # pergunta é outra: o Caddy e o DNS estão entregando isso ao mundo?
+          for tentativa in $(seq 1 10); do
+            if curl -fsS --max-time 15 "https://$DOMINIO/saude" > /tmp/saude.json; then
+              cat /tmp/saude.json
+              exit 0
+            fi
+            echo "tentativa $tentativa falhou; nova em 15s"
+            sleep 15
+          done
+          echo "O /saude público não respondeu. O contêiner subiu, então olhe o Caddy e o DNS." >&2
+          exit 1
+
+      - name: Limpar segredos do runner
+        if: always()
+        run: rm -f deploy/.env deploy/gcp/config.sh

@@ -7,9 +7,16 @@ Ordem, em cada chamada:
 3. papel — `bloqueado` e `pendente` são recusados; ferramentas marcadas com a
    tag `admin` exigem papel `admin`;
 4. cota — chamadas de hoje (fuso configurado) contra a cota do usuário;
-5. semáforo — ferramentas marcadas `pesada` disputam um número limitado de vagas,
-   para que buscas simultâneas não esgotem a CPU e a RAM da VM;
-6. execução e registro — tudo vai para `usuarios.db`, inclusive recusas.
+   a chamada é gravada ANTES de executar, na mesma transação da contagem, para
+   que chamadas em paralelo não furem a cota;
+5. semáforo — ferramentas marcadas `pesada` disputam um número limitado de vagas
+   (uma por usuário de cada vez), com espera máxima, para que buscas simultâneas
+   não esgotem a CPU e a RAM da VM;
+6. execução e registro — tudo vai para `usuarios.db`, inclusive recusas, e uma
+   linha de log por chamada (sem e-mail) alimenta as métricas do GCP.
+
+Recursos por ID (`leis://proposicao/…`, `leis://parlamentar/…`) passam pelo
+mesmo caminho e contam na cota.
 
 Uma camada só, antes de todas as ferramentas: quem escreve uma ferramenta nova
 não tem como esquecer de aplicar cota ou registro.
@@ -21,8 +28,9 @@ import asyncio
 import json
 import logging
 import time
+from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
-from typing import Any, Optional, Sequence
+from typing import Any, AsyncIterator, Awaitable, Callable, Optional, Sequence
 
 import anyio
 from fastmcp.exceptions import ToolError
@@ -38,6 +46,13 @@ TAG_ADMIN = "admin"
 TAG_PESADA = "pesada"
 #: Ferramentas que não consomem cota (o guia de pesquisa).
 TAG_LIVRE = "livre"
+
+#: Recursos que rodam consultas por ID: contam na cota como uma chamada.
+RECURSOS_COM_COTA = ("leis://proposicao/", "leis://parlamentar/")
+
+
+class ServidorOcupado(Exception):
+    """A chamada pesada não conseguiu vaga dentro de LEIS_ESPERA_MAXIMA_SEG."""
 
 
 @dataclass(frozen=True)
@@ -57,6 +72,7 @@ class ControleDeAcesso(Middleware):
         self.repo = repositorio
         self.tags_por_ferramenta = tags_por_ferramenta
         self._semaforo: Optional[asyncio.Semaphore] = None
+        self._vagas_por_usuario: dict[int, asyncio.Semaphore] = {}
 
     # ------------------------------------------------------------------
 
@@ -114,11 +130,40 @@ class ControleDeAcesso(Middleware):
         status: str,
         **extra: Any,
     ) -> None:
+        logger.info(
+            "chamada ferramenta=%s status=%s usuario_id=%s", ferramenta, status, usuario.id
+        )
         try:
             await anyio.to_thread.run_sync(
                 lambda: self.repo.registrar_chamada(
                     usuario.id, ferramenta, argumentos, status, **extra
                 )
+            )
+        except Exception:  # noqa: BLE001 — registro não pode derrubar a resposta
+            logger.exception("Falha ao registrar chamada de %s", ferramenta)
+
+    async def _finalizar(
+        self,
+        chamada_id: int,
+        usuario: Usuario,
+        ferramenta: str,
+        status: str,
+        espera_ms: int = 0,
+        **extra: Any,
+    ) -> None:
+        # Uma linha por chamada, sem e-mail: é o que o Cloud Logging transforma
+        # nas métricas do painel (docs/deploy_gcp.md, "Monitoramento").
+        logger.info(
+            "chamada ferramenta=%s status=%s duracao_ms=%s espera_ms=%d usuario_id=%s",
+            ferramenta,
+            status,
+            extra.get("duracao_ms"),
+            espera_ms,
+            usuario.id,
+        )
+        try:
+            await anyio.to_thread.run_sync(
+                lambda: self.repo.finalizar_chamada(chamada_id, status, **extra)
             )
         except Exception:  # noqa: BLE001 — registro não pode derrubar a resposta
             logger.exception("Falha ao registrar chamada de %s", ferramenta)
@@ -160,6 +205,41 @@ class ControleDeAcesso(Middleware):
     async def on_call_tool(self, context: MiddlewareContext, call_next) -> Any:
         nome = context.message.name
         argumentos = context.message.arguments or {}
+        return await self._executar(
+            nome,
+            argumentos,
+            self.tags_por_ferramenta.get(nome, set()),
+            lambda: call_next(context),
+        )
+
+    async def on_read_resource(self, context: MiddlewareContext, call_next) -> Any:
+        uri = str(context.message.uri)
+        if not uri.startswith(RECURSOS_COM_COTA):
+            usuario = await self._usuario()
+            if usuario.papel in ("bloqueado", "pendente"):
+                raise ToolError("Conta sem acesso liberado.")
+            return await call_next(context)
+        # Os recursos por ID rodam as mesmas consultas das ferramentas: sem
+        # isto, seriam um caminho sem cota e sem registro.
+        return await self._executar(
+            "recurso", {"uri": uri}, set(), lambda: call_next(context)
+        )
+
+    async def on_get_prompt(self, context: MiddlewareContext, call_next) -> Any:
+        usuario = await self._usuario()
+        if usuario.papel in ("bloqueado", "pendente"):
+            raise ToolError("Conta sem acesso liberado.")
+        return await call_next(context)
+
+    # ------------------------------------------------------------------
+
+    async def _executar(
+        self,
+        nome: str,
+        argumentos: Any,
+        tags: set[str],
+        executar: Callable[[], Awaitable[Any]],
+    ) -> Any:
         usuario = await self._usuario()
 
         if usuario.papel == "bloqueado":
@@ -174,69 +254,103 @@ class ControleDeAcesso(Middleware):
                 "Tente novamente depois de liberada."
             )
 
-        tags = self.tags_por_ferramenta.get(nome, set())
-
         if TAG_ADMIN in tags and usuario.papel != "admin":
             await self._registrar(usuario, nome, argumentos, "negado_permissao")
             raise ToolError(f"A ferramenta '{nome}' é restrita a administradores.")
 
+        limite: Optional[int] = None
         if usuario.papel != "admin" and TAG_LIVRE not in tags:
             limite = (
                 self.cfg.cota_padrao
                 if usuario.cota_diaria is None
                 else usuario.cota_diaria
             )
-            if limite != COTA_ILIMITADA:
-                livres = tuple(
-                    n for n, t in self.tags_por_ferramenta.items() if TAG_LIVRE in t
-                )
-                usadas = await anyio.to_thread.run_sync(
-                    self.repo.chamadas_hoje, usuario.id, livres
-                )
-                if usadas >= limite:
-                    await self._registrar(usuario, nome, argumentos, "negado_cota")
-                    raise ToolError(
-                        f"Cota diária atingida ({usadas} de {limite} chamadas). Ela renova à "
-                        f"meia-noite no fuso {self.cfg.fuso_cota}. Diga isso ao usuário; não "
-                        "responda com conhecimento próprio no lugar dos dados."
-                    )
+            if limite == COTA_ILIMITADA:
+                limite = None
+        livres = tuple(
+            n for n, t in self.tags_por_ferramenta.items() if TAG_LIVRE in t
+        )
+        chamada_id, usadas = await anyio.to_thread.run_sync(
+            self.repo.reservar_chamada, usuario.id, nome, argumentos, limite, livres
+        )
+        if chamada_id is None:
+            await self._registrar(usuario, nome, argumentos, "negado_cota")
+            raise ToolError(
+                f"Cota diária atingida ({usadas} de {limite} chamadas). Ela renova à "
+                f"meia-noite no fuso {self.cfg.fuso_cota}. Diga isso ao usuário; não "
+                "responda com conhecimento próprio no lugar dos dados."
+            )
 
         inicio = time.monotonic()
+        espera_ms = 0
         try:
             if TAG_PESADA in tags:
-                async with self._vagas():
-                    resultado = await call_next(context)
+                async with self._vaga_pesada(usuario, nome, chamada_id):
+                    espera_ms = int((time.monotonic() - inicio) * 1000)
+                    resultado = await executar()
             else:
-                resultado = await call_next(context)
+                resultado = await executar()
+        except ServidorOcupado:
+            raise ToolError(
+                "Servidor ocupado: muitas buscas em andamento agora. Esta chamada NÃO foi "
+                "executada e não contou na cota. Aguarde cerca de um minuto e tente de novo; "
+                "não responda com conhecimento próprio no lugar dos dados."
+            ) from None
         except Exception as e:
-            await self._registrar(
+            await self._finalizar(
+                chamada_id,
                 usuario,
                 nome,
-                argumentos,
                 "erro",
                 duracao_ms=int((time.monotonic() - inicio) * 1000),
+                espera_ms=espera_ms,
                 erro=f"{type(e).__name__}: {e}",
             )
             raise
 
-        await self._registrar(
+        await self._finalizar(
+            chamada_id,
             usuario,
             nome,
-            argumentos,
             "erro" if getattr(resultado, "is_error", False) else "ok",
             duracao_ms=int((time.monotonic() - inicio) * 1000),
+            espera_ms=espera_ms,
             tamanho_resposta=self._tamanho(resultado),
         )
         return resultado
 
-    async def on_read_resource(self, context: MiddlewareContext, call_next) -> Any:
-        usuario = await self._usuario()
-        if usuario.papel in ("bloqueado", "pendente"):
-            raise ToolError("Conta sem acesso liberado.")
-        return await call_next(context)
-
-    async def on_get_prompt(self, context: MiddlewareContext, call_next) -> Any:
-        usuario = await self._usuario()
-        if usuario.papel in ("bloqueado", "pendente"):
-            raise ToolError("Conta sem acesso liberado.")
-        return await call_next(context)
+    @asynccontextmanager
+    async def _vaga_pesada(
+        self, usuario: Usuario, nome: str, chamada_id: int
+    ) -> AsyncIterator[None]:
+        """
+        Duas filas, com espera máxima somada de LEIS_ESPERA_MAXIMA_SEG:
+        primeiro a do próprio usuário (uma busca pesada por vez por conta, para
+        que chamadas em paralelo de uma pessoa não ocupem todas as vagas), depois
+        a global (LEIS_BUSCAS_SIMULTANEAS). Passou do prazo, a chamada é
+        recusada e a reserva da cota é desfeita: esperar indefinidamente só
+        empurraria a resposta para depois dos 240 s em que o cliente desiste.
+        """
+        por_usuario = self._vagas_por_usuario.setdefault(
+            usuario.id, asyncio.Semaphore(1)
+        )
+        pilha = AsyncExitStack()
+        try:
+            async with asyncio.timeout(self.cfg.espera_maxima_seg):
+                await pilha.enter_async_context(por_usuario)
+                await pilha.enter_async_context(self._vagas())
+        except TimeoutError:
+            await pilha.aclose()
+            try:
+                await anyio.to_thread.run_sync(self.repo.cancelar_chamada, chamada_id)
+            except Exception:  # noqa: BLE001
+                logger.exception("Falha ao cancelar a reserva %s", chamada_id)
+            logger.warning(
+                "chamada ferramenta=%s status=ocupado usuario_id=%s espera_ms=%d",
+                nome,
+                usuario.id,
+                int(self.cfg.espera_maxima_seg * 1000),
+            )
+            raise ServidorOcupado() from None
+        async with pilha:
+            yield

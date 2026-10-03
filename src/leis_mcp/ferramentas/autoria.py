@@ -26,21 +26,37 @@ from leis_mcp.dados.banco import conexao
 from leis_mcp.paginacao import cache, chave_de, paginar
 from leis_mcp.texto import normalizar_casa, palavras, rotulo_proposicao, sem_acento
 
-#: Quão perto a segunda família de palavras pode chegar da primeira antes de o
-#: radical ser ambíguo. Medido em 16 temas: recusa 'apost' (aposta × aposto) e
-#: 'idos' (idoso × idosa); aprova 'mulher', 'arma', 'trabalh'.
-EMPATE_MAXIMO = 0.80
+#: Quantas ementas mostrar por família na prévia. Três é o bastante para a
+#: diferença aparecer sem transformar a prévia num despejo de texto.
+AMOSTRAS_POR_FAMILIA = 3
 
-def _formas_do_radical(conn: sqlite3.Connection, radical: str) -> dict[str, int]:
-    """Quais palavras o radical casa nas ementas, e com que frequência."""
+
+def _formas_do_radical(
+    conn: sqlite3.Connection, radical: str
+) -> tuple[dict[str, int], dict[str, list[str]]]:
+    """
+    O que o radical casa nas ementas: as palavras, com frequência, e exemplos.
+
+    Uma varredura só serve às duas coisas. As ementas de exemplo importam mais
+    que a contagem: a contagem separa 'aposta*' de 'aposto*', mas é cega para
+    'inteligência', que é UMA família contendo inteligência artificial e a
+    Agência Brasileira de Inteligência. Lendo três ementas, a mistura aparece.
+    """
     formas: dict[str, int] = {}
+    exemplos: dict[str, list[str]] = {}
     padrao = re.compile(rf"\b{re.escape(radical)}\w*", re.IGNORECASE)
     for (ementa,) in conn.execute(
         "SELECT ementa FROM proposicoes WHERE ementa LIKE ?", (f"%{radical}%",)
     ):
-        for palavra in padrao.findall(ementa or ""):
+        achadas = padrao.findall(ementa or "")
+        for palavra in achadas:
             formas[palavra.lower()] = formas.get(palavra.lower(), 0) + 1
-    return formas
+        # Guarda a ementa sob a família de cada palavra distinta que ela casou.
+        for palavra in {p.lower() for p in achadas}:
+            resto = palavra[len(radical) :]
+            familia = radical + (resto[0] if resto else "")
+            exemplos.setdefault(familia, []).append(" ".join((ementa or "").split()))
+    return formas, exemplos
 
 
 def _familias(radical: str, formas: dict[str, int]) -> list[tuple[str, int]]:
@@ -53,44 +69,100 @@ def _familias(radical: str, formas: dict[str, int]) -> list[tuple[str, int]]:
     return sorted(grupos.items(), key=lambda x: -x[1])
 
 
-def _calcular(
-    radical: str, secundario: str, aceitar_radical_amplo: bool
+def _previa(
+    radical: str,
+    secundario: str,
+    familias: list[tuple[str, int]],
+    exemplos: dict[str, list[str]],
 ) -> dict[str, Any]:
+    """
+    O que o radical alcança, para conferir ANTES de buscar nomes.
+
+    Devolve medição e exemplos, e nenhum parlamentar. Não é recusa: é o
+    primeiro dos dois passos. Quem lê confirma, refina ou desiste — a função
+    não decide por ninguém, e por isso não há limiar nenhum aqui.
+    """
+    total = sum(n for _, n in familias) or 1
+    detalhe = []
+    for familia, n in familias[:6]:
+        amostras = exemplos.get(familia, [])
+        # Amostra espalhada (começo, meio, fim) em vez das três primeiras: por
+        # id, as primeiras tendem a ser do mesmo ano e do mesmo assunto.
+        escolhidas = []
+        if amostras:
+            passo = max(1, len(amostras) // AMOSTRAS_POR_FAMILIA)
+            escolhidas = [
+                a[:220] for a in amostras[:: passo][:AMOSTRAS_POR_FAMILIA]
+            ]
+        detalhe.append(
+            {
+                "prefixo": f"{familia}*",
+                "ocorrencias": n,
+                "fatia_do_radical": f"{100 * n / total:.0f}%",
+                "ementas_de_exemplo": escolhidas,
+            }
+        )
+    return {
+        "etapa": "PREVIA_DO_RADICAL",
+        "tema": radical + (f" + {secundario}" if secundario else ""),
+        "observacao": (
+            f"Nenhum nome foi buscado ainda. O radical '{radical}' tem menos de 8 letras e alcança "
+            f"{f'{total:,}'.replace(',', '.')} ocorrências em {len(familias)} família(s) de palavras. "
+            "LEIA as ementas de exemplo de cada família e decida se todas são o SEU assunto. Depois, uma "
+            "de três saídas: (1) se todas servem, repita a chamada com confirmar_radical=true; (2) se só "
+            "uma família serve, repita com o radical dela (ex.: termo='aposta' em vez de 'apost'); (3) se "
+            "o assunto está misturado DENTRO de uma família, use termo_secundario para separar "
+            "(ex.: termo='intelig' + termo_secundario='artificial'). Atribuir a alguém uma posição que "
+            "veio do ruído do radical é o pior erro desta ferramenta — é por isso que este passo existe."
+        ),
+        "formas_que_o_radical_casou": detalhe,
+        "como_continuar": {
+            "confirmar": "mapear_autores_por_tema(termo='%s', confirmar_radical=true)" % radical,
+            "refinar_radical": "mapear_autores_por_tema(termo='<família escolhida>')",
+            "separar_assunto": "mapear_autores_por_tema(termo='%s', termo_secundario='<palavra>')" % radical,
+        },
+        "escala": (
+            "O acervo tem ~429 mil ementas. Um tema comum aparece em algumas centenas a alguns milhares "
+            "delas: centenas de ocorrências é tamanho NORMAL de tema, não sinal de erro."
+        ),
+    }
+
+
+def _calcular(radical: str, secundario: str, confirmado: bool) -> dict[str, Any]:
     with conexao(row_factory=True) as conn:
-        # A guarda vale MESMO com termo_secundario: ela é sobre o radical
-        # principal. Condicionada a "sem secundário", bastou o modelo chamar
-        # termo='apost' + 'bet' para passar por cima dela.
-        if len(radical) < 8 and not aceitar_radical_amplo:
-            familias = _familias(radical, _formas_do_radical(conn, radical))
-            total = sum(n for _, n in familias)
-            segunda = familias[1][1] if len(familias) > 1 else 0
-            empate = segunda / familias[0][1] if familias and familias[0][1] else 0
-            if total >= 20 and empate >= EMPATE_MAXIMO:
-                return {
-                    "erro": "RADICAL_AMBIGUO",
-                    "observacao": (
-                        f"O radical '{radical}' abre em duas famílias de palavras de tamanho parecido — "
-                        f"'{familias[0][0]}*' ({familias[0][1]}) e '{familias[1][0]}*' ({familias[1][1]}) —, "
-                        "o que costuma significar duas leituras diferentes da mesma raiz. Nenhum dado foi "
-                        "consultado. Escolha a família que corresponde à SUA pergunta e refaça (ex.: "
-                        f"termo='{familias[0][0]}'). Se as famílias forem do mesmo tema (masculino e feminino "
-                        "da mesma palavra, por exemplo), repita com aceitar_radical_amplo=true. Escolher errado "
-                        "atribui posição política a quem não a tem: em 'apost', a família mais frequente é "
-                        "'aposto*' — o particípio de APOR, como em 'assinatura aposta'."
-                    ),
-                    "familias": [
-                        {
-                            "prefixo": f"{f}*",
-                            "ocorrencias": n,
-                            "fatia_do_radical": f"{100 * n / total:.0f}%",
-                        }
-                        for f, n in familias[:6]
-                    ],
-                    "escala": (
-                        "O acervo tem ~429 mil ementas. Um tema comum aparece em algumas centenas a alguns "
-                        "milhares delas: centenas de ocorrências é tamanho NORMAL de tema."
-                    ),
-                }
+        # O que este bloco NÃO faz mais: decidir se o radical é ambíguo.
+        #
+        # Havia aqui uma recusa automática, disparada quando a segunda família
+        # de palavras chegava a 80% da primeira — um limiar calibrado à mão
+        # sobre 16 temas. Ela acertava o que fora calibrada para acertar
+        # ('apost' = aposta × aposto) e era CEGA por construção para o resto:
+        # 'intelig' abre em uma família só ('inteligê', 1.020 ocorrências), e
+        # dentro dela convivem inteligência artificial e a ABIN. Nenhum limiar
+        # sobre forma de palavra enxerga isso, porque a palavra é a mesma.
+        #
+        # Em vez de calibrar melhor, a medição deixou de virar veredito: o
+        # radical curto passa a devolver o que ele de fato casou, e quem lê
+        # decide se são o mesmo assunto. O código mede e mostra; não opina.
+        familias_medidas: list[tuple[str, int]] = []
+        exemplos_por_familia: dict[str, list[str]] = {}
+        if len(radical) < 8:
+            formas, exemplos_por_familia = _formas_do_radical(conn, radical)
+            familias_medidas = _familias(radical, formas)
+            if not confirmado and not secundario:
+                # Prévia: mostra o que o radical alcança e devolve o controle.
+                # Nenhum nome sai daqui — é esse o ponto. O aviso enterrado no
+                # meio de 566 parlamentares dependia de alguém lê-lo; sem os
+                # parlamentares, não há o que usar antes de olhar.
+                #
+                # `termo_secundario` pula a prévia porque usá-lo É a resposta a
+                # ela: a própria prévia manda separar o assunto assim, e exigir
+                # confirmação depois disso deixava a chamada em círculo
+                # (prévia -> secundário -> prévia). Versões antigas mantinham a
+                # guarda mesmo com secundário, mas ali ela RECUSAVA e não havia
+                # outra forma de ver o que o radical casava; agora as famílias
+                # e as ementas de exemplo vão no resultado completo de qualquer
+                # jeito, então a informação não se perde.
+                return _previa(radical, secundario, familias_medidas, exemplos_por_familia)
 
         condicoes = ["p.ementa LIKE ?"]
         valores: list[Any] = [f"%{radical}%"]
@@ -132,7 +204,9 @@ def _calcular(
             SELECT p.id_proposicao, p.sigla_tipo, p.numero, p.ano, vt.id_votacao,
                    vt.descricao, vt.data, vt.casa, vt.total_votos
             FROM votacoes vt JOIN proposicoes p ON p.id_proposicao = vt.id_proposicao
-            WHERE p.ementa LIKE ?
+            -- Só votação com voto individual: a linha devolve `votos_registrados`,
+            -- que na simbólica seria NULL e se leria como 'ninguém votou'.
+            WHERE p.ementa LIKE ? AND vt.tem_voto_nominal = 1
             ORDER BY vt.total_votos DESC, vt.data
             """,
             (f"%{radical}%",),
@@ -216,8 +290,33 @@ def _calcular(
     if aviso_radical:
         avisos.append(aviso_radical)
 
+    # O que o radical casou, medido, sem juízo sobre ser um assunto ou dois.
+    formas_casadas = None
+    if familias_medidas:
+        total_formas = sum(n for _, n in familias_medidas)
+        formas_casadas = [
+            {
+                "prefixo": f"{f}*",
+                "ocorrencias": n,
+                "fatia_do_radical": f"{100 * n / total_formas:.0f}%",
+            }
+            for f, n in familias_medidas[:6]
+        ]
+        avisos.append(
+            f"O radical '{radical}' tem menos de 8 letras e casou "
+            f"{f'{total_formas:,}'.replace(',', '.')} ocorrências em "
+            f"{len(familias_medidas)} família(s) de palavras — veja `formas_que_o_radical_casou`. A "
+            "ferramenta NÃO julga se são o mesmo assunto: quem lê decide. Duas armadilhas conhecidas, as "
+            "duas reais neste acervo: famílias diferentes podem ser palavras diferentes ('apost' casa "
+            "'aposta' e também 'aposto', o particípio de APOR, como em 'assinatura aposta'); e uma única "
+            "família pode conter assuntos distintos ('inteligência' cobre inteligência artificial E a "
+            "ABIN). Se a distribuição sugerir mistura, refaça com um radical mais longo ou com "
+            "`termo_secundario`, e diga ao usuário o que você restringiu."
+        )
+
     return {
         "tema": radical + (f" + {secundario}" if secundario else ""),
+        **({"formas_que_o_radical_casou": formas_casadas} if formas_casadas else {}),
         "total_proposicoes": len({r["id_proposicao"] for r in linhas}),
         "total_parlamentares": len(parlamentares),
         "com_votacao_nominal": [
@@ -240,7 +339,7 @@ def _calcular(
 def mapear_autores_por_tema(
     termo: str,
     termo_secundario: Optional[str] = None,
-    aceitar_radical_amplo: bool = False,
+    confirmar_radical: bool = False,
     pagina: Optional[int] = None,
 ) -> dict[str, Any]:
     radical = (termo or "").strip().strip("%")
@@ -254,8 +353,8 @@ def mapear_autores_por_tema(
         }
     secundario = (termo_secundario or "").strip().strip("%")
     completo = cache.obter_ou_calcular(
-        chave_de("autores", radical, secundario, bool(aceitar_radical_amplo)),
-        lambda: _calcular(radical, secundario, bool(aceitar_radical_amplo)),
+        chave_de("autores", radical, secundario, bool(confirmar_radical)),
+        lambda: _calcular(radical, secundario, bool(confirmar_radical)),
     )
     if "parlamentares" not in completo:
         return completo

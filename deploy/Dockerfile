@@ -27,11 +27,13 @@ WORKDIR /app
 COPY pyproject.toml uv.lock README.md ./
 RUN uv sync --frozen --no-dev --no-install-project
 
-COPY src ./src
-RUN uv sync --frozen --no-dev
-
+# Modelo antes do código: senão cada mudança em src/ baixa de novo ~1,2 GB e
+# deixa uma camada órfã do mesmo tamanho no disco da VM.
 RUN /app/.venv/bin/python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('${EMBEDDING_MODEL}', device='cpu')" \
     && chmod -R a+rX /opt/hf
+
+COPY src ./src
+RUN uv sync --frozen --no-dev
 
 RUN useradd --uid 10001 --create-home leis \
     && mkdir -p /dados /banco \
@@ -50,8 +52,9 @@ ENV PATH="/app/.venv/bin:${PATH}" \
 USER leis
 EXPOSE 8000
 
-# start-period cobre o aquecimento (modelo + ~430 mil vetores em memória).
-HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=3 \
+# start-period cobre o aquecimento (modelo + ~430 mil vetores em memória), com
+# folga para o disco frio da VM logo depois de um boot.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=300s --retries=3 \
     CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/saude', timeout=4).status == 200 else 1)"
 
 CMD ["leis-mcp"]

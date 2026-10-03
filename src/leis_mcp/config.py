@@ -105,6 +105,9 @@ class Config:
     threshold: float
     threshold_inteiro_teor: float
     buscas_simultaneas: int
+    #: Espera máxima por vaga de ferramenta pesada. Passou disso, a chamada é
+    #: recusada como "servidor ocupado" e não conta na cota.
+    espera_maxima_seg: float
     aquecer_na_partida: bool
 
     # ---- Inteiro teor sob demanda -------------------------------------------
@@ -191,6 +194,7 @@ def obter_config() -> Config:
         threshold=_real("LEIS_THRESHOLD", 0.0),
         threshold_inteiro_teor=_real("LEIS_THRESHOLD_INTEIRO_TEOR", 0.0),
         buscas_simultaneas=max(1, _inteiro("LEIS_BUSCAS_SIMULTANEAS", 2)),
+        espera_maxima_seg=max(1.0, _real("LEIS_ESPERA_MAXIMA_SEG", 45.0)),
         aquecer_na_partida=_booleano("LEIS_AQUECER", True),
         sob_demanda=_booleano("LEIS_SOB_DEMANDA", True),
         sob_demanda_max_proposicoes=max(
