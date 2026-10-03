@@ -17,3 +17,4 @@ etl/
 logs/
 avaliacao/
 .ruff_cache
+comandos.md

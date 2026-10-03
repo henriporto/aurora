@@ -28,7 +28,7 @@ deploy/gcp/config.env
 *.sha256
 *.zst
 *.parcial
-
+comandos.md
 # ETL: logs, controle de anos e downloads
 /logs/
 *.log
