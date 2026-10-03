@@ -169,6 +169,10 @@ def limiar(filtro, alinhamento, aligner, comparacao, valor, duracao, redutor=Non
 
 
 VM = 'resource.type="gce_instance"'
+# Os snaps do Ubuntu montam imagens squashfs em /dev/loop*, sempre 100% cheias:
+# sem tirá-las, o alerta de disco dispara com o disco de verdade vazio.
+DISCO = (f'metric.type="agent.googleapis.com/disk/percent_used" AND {VM} AND metric.label.state="used" '
+         'AND metric.label.device != starts_with("/dev/loop")')
 alertas = [
     ("leis-mcp: fora do ar",
      "https://" + DOMINIO + "/saude falhou em 2 ou mais regiões por 5 minutos. Veja "
@@ -190,7 +194,7 @@ alertas = [
     ("leis-mcp: disco acima de 85%",
      "Disco da VM acima de 85%. Libere com `sudo docker image prune -a` ou apague a versão "
      "anterior do banco em /srv/leis/banco.",
-     limiar(f'metric.type="agent.googleapis.com/disk/percent_used" AND {VM} AND metric.label.state="used"',
+     limiar(DISCO,
             "300s", "ALIGN_MEAN", "COMPARISON_GT", 85, "600s")),
     ("leis-mcp: servidor ocupado (sobrecarga)",
      "Mais de 3 chamadas recusadas por falta de vaga em 10 minutos: há mais buscas "
@@ -244,7 +248,7 @@ graficos = [
             f'metric.type="agent.googleapis.com/memory/percent_used" AND {VM} AND metric.label.state="used"',
             "ALIGN_MEAN"),
     grafico("Disco usado (%)",
-            f'metric.type="agent.googleapis.com/disk/percent_used" AND {VM} AND metric.label.state="used"',
+            DISCO,
             "ALIGN_MEAN"),
     grafico("Disponibilidade de /saude (fração de verificações OK)",
             'metric.type="monitoring.googleapis.com/uptime_check/check_passed" AND '
