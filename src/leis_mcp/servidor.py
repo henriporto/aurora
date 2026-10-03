@@ -161,6 +161,9 @@ def criar_servidor(cfg: Config, repositorio: Repositorio) -> FastMCP:
     if cfg.auth_ligada:
         from fastmcp.server.auth.providers.google import GoogleProvider
 
+        from leis_mcp import consentimento
+
+        consentimento.instalar()
         auth = GoogleProvider(
             client_id=cfg.google_client_id,
             client_secret=cfg.google_client_secret,
