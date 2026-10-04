@@ -41,7 +41,8 @@ if ! gcloud iam workload-identity-pools describe "$POOL" --location global >/dev
     --display-name "GitHub Actions"
 fi
 
-echo "==> Provedor OIDC $PROVEDOR (restrito a $GITHUB_REPO)"
+echo "==> Provedor OIDC $PROVEDOR (restrito a $GITHUB_REPO, branch main)"
+CONDICAO="assertion.repository == '$GITHUB_REPO' && assertion.ref == 'refs/heads/main'"
 if ! gcloud iam workload-identity-pools providers describe "$PROVEDOR" \
       --location global --workload-identity-pool "$POOL" >/dev/null 2>&1; then
   gcloud iam workload-identity-pools providers create-oidc "$PROVEDOR" \
@@ -49,11 +50,11 @@ if ! gcloud iam workload-identity-pools providers describe "$PROVEDOR" \
     --display-name "GitHub OIDC" \
     --issuer-uri "https://token.actions.githubusercontent.com" \
     --attribute-mapping "google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.ref=assertion.ref" \
-    --attribute-condition "assertion.repository == '$GITHUB_REPO'"
+    --attribute-condition "$CONDICAO"
 else
   gcloud iam workload-identity-pools providers update-oidc "$PROVEDOR" \
     --location global --workload-identity-pool "$POOL" \
-    --attribute-condition "assertion.repository == '$GITHUB_REPO'" >/dev/null
+    --attribute-condition "$CONDICAO" >/dev/null
 fi
 
 echo "==> Autorizando $GITHUB_REPO a usar $SA_NOME"
