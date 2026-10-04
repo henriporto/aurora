@@ -8,25 +8,15 @@ Gera a cópia comprimida do leis.db para publicar no Hugging Face.
     uv run scripts/comprimir_banco.py [origem] [--nivel 9] [--verificar]
                                       [--arquivo-morto dados/backup]
 
-Origem, pasta de saída e nível vêm do `.env` (ver `scripts/config.py`); os
-argumentos, quando passados, têm prioridade. Saída em `LEIS_PUBLICAR_DIR`:
+Configuração no `.env` (ver `scripts/config.py`); os argumentos têm prioridade.
+Saída em `LEIS_PUBLICAR_DIR`:
 
 - `leis.db.zst`: o banco comprimido com zstd.
-- `leis.db.json`: SHA-256 e tamanho do banco DESCOMPRIMIDO, que o
-  `baixar_banco.py` usa para conferir a instalação do usuário.
+- `leis.db.json`: SHA-256 e tamanho do banco descomprimido, usados pelo
+  `baixar_banco.py` para conferir a instalação.
 
-A cópia passa antes pelo `preparar_banco.py` (API de backup do SQLite,
-`journal_mode=DELETE`), então sai consistente e em arquivo único mesmo com o
-banco de origem aberto. O nível 9 comprime o banco para ~19% a ~270 MB/s; o 19
-ganha pouco mais de 1 ponto e é dezenas de vezes mais lento (no banco de 12 GB
-com os discursos, o nível 9 rende ~33%: os vetores float32 que dominam o
-arquivo são quase incompressíveis).
-
-Se já houver um pacote em `LEIS_PUBLICAR_DIR`, ele é MOVIDO para
-`--arquivo-morto` (padrão `dados/backup`) com o carimbo de quando foi gerado —
-`leis-AAAAMMDD-HHMMSS.db.zst` —, e não sobrescrito. Antes o script abortava
-pedindo limpeza manual: protegia o pacote publicado, mas empurrava para o
-usuário um `rm` na pasta que contém exatamente o arquivo que está no ar.
+A cópia passa antes pelo `preparar_banco.py`. Um pacote já existente na pasta
+de saída é movido para `--arquivo-morto`, não sobrescrito.
 """
 
 from __future__ import annotations
@@ -58,17 +48,8 @@ def _carimbo_do_pacote(manifesto: Path) -> str:
 def _arquivar_pacote_anterior(
     origem: Path, comprimido: Path, manifesto: Path, copia: Path, arquivo_morto: Path
 ) -> None:
-    """
-    Tira da pasta de publicação o pacote da rodada anterior, sem apagá-lo.
-
-    Este script se recusava a sobrescrever e mandava o usuário limpar a pasta à
-    mão — proteção correta (o pacote pode ser o que está publicado no Hugging
-    Face), execução errada: a recusa acontecia DEPOIS de você já ter decidido
-    republicar, e a limpeza manual é o tipo de passo que se faz com `rm` às
-    pressas. Arquivar guarda a mesma coisa e não interrompe ninguém.
-    """
-    # `leis.db` na pasta de saída é a cópia temporária de uma execução
-    # interrompida: o fluxo normal a apaga no fim. Não é pacote, é lixo.
+    """Move o pacote da rodada anterior para o arquivo morto, sem apagá-lo."""
+    # Cópia temporária deixada por uma execução interrompida.
     for lixo in (copia, Path(f"{copia}.sha256")):
         if lixo.exists():
             print(f"Removendo sobra de execução anterior: {lixo.name}")
@@ -78,8 +59,7 @@ def _arquivar_pacote_anterior(
     if not existentes:
         return
 
-    # Aviso antes do trabalho pesado: comprimir 12 GB leva minutos, e refazer o
-    # pacote de um banco que não mudou é desperdício que dá para perceber aqui.
+    # Avisa se o banco parece ser o mesmo que já foi empacotado.
     try:
         anterior = json.loads(manifesto.read_text())
         if anterior.get("bytes") == origem.stat().st_size:
@@ -98,8 +78,7 @@ def _arquivar_pacote_anterior(
         sufixo = "".join(caminho.suffixes)  # .db.zst / .db.json
         destino = arquivo_morto / f"leis-{carimbo}{sufixo}"
         caminho.rename(destino)
-        # `--arquivo-morto` pode apontar para fora do projeto; aí o caminho
-        # relativo não existe e o absoluto é o que informa.
+        # Fora do projeto não há caminho relativo: mostra o absoluto.
         try:
             rotulo = destino.relative_to(RAIZ)
         except ValueError:

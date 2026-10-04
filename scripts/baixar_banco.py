@@ -7,12 +7,9 @@ Baixa o leis.db do Hugging Face, descomprime e instala em `dados/leis.db`.
 
     uv run scripts/baixar_banco.py [--repo USUARIO/REPO] [--forcar]
 
-Repositório, revisão e destino vêm do `.env` (ver `scripts/config.py`); os
-argumentos, quando passados, têm prioridade.
-
-O download (~2 GB) é retomado se cair no meio. O banco descomprimido (~9 GB) é
-conferido pelo SHA-256 antes de ocupar o lugar de `dados/leis.db`, e o arquivo
-comprimido é apagado no fim. Precisa de ~11 GB livres durante a instalação.
+Configuração no `.env` (ver `scripts/config.py`); os argumentos têm prioridade.
+O download (~4 GB) é retomável, e o banco (~12 GB) é conferido pelo SHA-256
+antes de ocupar o lugar de `dados/leis.db`.
 """
 
 from __future__ import annotations

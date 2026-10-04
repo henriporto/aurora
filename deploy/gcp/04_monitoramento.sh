@@ -1,14 +1,6 @@
 #!/usr/bin/env bash
-# Monitoramento no Cloud Monitoring: verificação de disponibilidade de /saude,
-# métricas de chamadas (a partir dos logs), alertas por e-mail e um painel.
-# Idempotente: o que já existe (pelo nome) é mantido.
-#
+# Cria verificação de disponibilidade, métricas, alertas e painel no Cloud Monitoring.
 #   bash deploy/gcp/04_monitoramento.sh
-#
-# Pré-requisitos: 03_publicar_app.sh já rodou (o domínio responde em HTTPS) e a
-# VM tem o Ops Agent (instalado por preparar_vm.sh).
-# Usa a API REST com o token do `gcloud auth login`: não precisa dos
-# componentes alpha/beta do gcloud.
 set -euo pipefail
 DIR="$(cd "$(dirname "$0")" && pwd)"
 RAIZ="$(cd "$DIR/../.." && pwd)"
@@ -42,7 +34,6 @@ MON = f"https://monitoring.googleapis.com/v3/projects/{P}"
 LOG = f"https://logging.googleapis.com/v2/projects/{P}"
 DASH = f"https://monitoring.googleapis.com/v1/projects/{P}/dashboards"
 
-
 def api(metodo, url, corpo=None, aceitar_404=False):
     req = urllib.request.Request(
         url,
@@ -62,7 +53,6 @@ def api(metodo, url, corpo=None, aceitar_404=False):
             return None
         raise SystemExit(f"{metodo} {url}\n{e.code}: {e.read().decode()[:800]}")
 
-
 def listar(url, chave):
     itens, pagina = [], ""
     while True:
@@ -73,8 +63,6 @@ def listar(url, chave):
         if not pagina:
             return itens
 
-
-# ---- Canal de notificação -------------------------------------------------
 canais = [
     c for c in listar(f"{MON}/notificationChannels", "notificationChannels")
     if c.get("type") == "email" and c.get("labels", {}).get("email_address") == EMAIL
@@ -89,7 +77,6 @@ else:
     })["name"]
     print(f"Canal de e-mail criado: {EMAIL}")
 
-# ---- Verificação de disponibilidade ---------------------------------------
 NOME_UPTIME = "leis-mcp /saude"
 existentes = [
     u for u in listar(f"{MON}/uptimeCheckConfigs", "uptimeCheckConfigs")
@@ -98,7 +85,6 @@ existentes = [
 if existentes:
     uptime = existentes[0]["name"]
 else:
-    # /saude devolve 503 enquanto aquece e 200 quando banco e buscador estão prontos.
     uptime = api("POST", f"{MON}/uptimeCheckConfigs", {
         "displayName": NOME_UPTIME,
         "monitoredResource": {"type": "uptime_url", "labels": {"project_id": P, "host": DOMINIO}},
@@ -110,16 +96,12 @@ else:
     print(f"Verificação de disponibilidade criada: https://{DOMINIO}/saude")
 check_id = uptime.rsplit("/", 1)[-1]
 
-# ---- Métricas a partir dos logs --------------------------------------------
-# Cada chamada gera uma linha "chamada ferramenta=X status=Y duracao_ms=N
-# espera_ms=N usuario_id=N" (usuarios/controle.py), lida pelo Ops Agent dos
-# arquivos do Docker para o log "docker_leis".
 FILTRO_CHAMADA = f'logName="projects/{P}/logs/docker_leis" AND jsonPayload.log:"chamada ferramenta="'
 ROTULO = {"key": "ferramenta", "valueType": "STRING"}
 EXTRAI_FERRAMENTA = r'REGEXP_EXTRACT(jsonPayload.log, "ferramenta=([^ ]+)")'
 metricas = {
     "leis_chamadas": {
-        "description": "Chamadas ao leis-mcp por ferramenta e status (ok, erro, negado_*, ocupado)",
+        "description": "Chamadas à Aurora por ferramenta e status (ok, erro, negado_*, ocupado)",
         "filter": FILTRO_CHAMADA,
         "metricDescriptor": {"metricKind": "DELTA", "valueType": "INT64", "unit": "1",
                              "labels": [ROTULO, {"key": "status", "valueType": "STRING"}]},
@@ -127,7 +109,7 @@ metricas = {
                             "status": r'REGEXP_EXTRACT(jsonPayload.log, "status=([^ ]+)")'},
     },
     "leis_duracao_ms": {
-        "description": "Duração das chamadas ao leis-mcp (ms), incluindo a espera na fila",
+        "description": "Duração das chamadas à Aurora (ms), incluindo a espera na fila",
         "filter": FILTRO_CHAMADA + ' AND jsonPayload.log=~"duracao_ms=[0-9]+"',
         "metricDescriptor": {"metricKind": "DELTA", "valueType": "DISTRIBUTION", "unit": "ms",
                              "labels": [ROTULO]},
@@ -136,7 +118,7 @@ metricas = {
         "bucketOptions": {"exponentialBuckets": {"numFiniteBuckets": 20, "growthFactor": 2, "scale": 10}},
     },
     "leis_espera_ms": {
-        "description": "Espera por vaga das buscas pesadas do leis-mcp (ms)",
+        "description": "Espera por vaga das buscas pesadas da Aurora (ms)",
         "filter": FILTRO_CHAMADA + ' AND jsonPayload.log=~"espera_ms=[1-9][0-9]*"',
         "metricDescriptor": {"metricKind": "DELTA", "valueType": "DISTRIBUTION", "unit": "ms",
                              "labels": [ROTULO]},
@@ -150,13 +132,9 @@ for nome, corpo in metricas.items():
         api("POST", f"{LOG}/metrics", {"name": nome, **corpo})
         print(f"Métrica de log criada: {nome}")
 
-
 def metrica(nome):
-    # Os logs chegam pelo Ops Agent da VM; a API de alertas exige o resource.type.
     return f'metric.type="logging.googleapis.com/user/{nome}" AND resource.type="gce_instance"'
 
-
-# ---- Alertas ---------------------------------------------------------------
 def limiar(filtro, alinhamento, aligner, comparacao, valor, duracao, redutor=None, grupos=None):
     agregacao = {"alignmentPeriod": alinhamento, "perSeriesAligner": aligner}
     if redutor:
@@ -167,10 +145,8 @@ def limiar(filtro, alinhamento, aligner, comparacao, valor, duracao, redutor=Non
         "thresholdValue": valor, "duration": duracao, "trigger": {"count": 1},
     }}
 
-
 VM = 'resource.type="gce_instance"'
-# Os snaps do Ubuntu montam imagens squashfs em /dev/loop*, sempre 100% cheias:
-# sem tirá-las, o alerta de disco dispara com o disco de verdade vazio.
+# Sem /dev/loop*: imagens de snap aparecem sempre 100% cheias.
 DISCO = (f'metric.type="agent.googleapis.com/disk/percent_used" AND {VM} AND metric.label.state="used" '
          'AND metric.label.device != starts_with("/dev/loop")')
 alertas = [
@@ -221,7 +197,6 @@ for titulo, texto, condicao in alertas:
     })
     print(f"Alerta criado: {titulo}")
 
-# ---- Painel ----------------------------------------------------------------
 def grafico(titulo, filtro, aligner, redutor=None, grupos=None, tipo="LINE", periodo="60s"):
     agregacao = {"alignmentPeriod": periodo, "perSeriesAligner": aligner}
     if redutor:
@@ -231,7 +206,6 @@ def grafico(titulo, filtro, aligner, redutor=None, grupos=None, tipo="LINE", per
         "timeSeriesQuery": {"timeSeriesFilter": {"filter": filtro, "aggregation": agregacao}},
         "plotType": tipo, "minAlignmentPeriod": periodo,
     }]}}
-
 
 graficos = [
     grafico("Chamadas por status (por minuto)", metrica("leis_chamadas"), "ALIGN_SUM",

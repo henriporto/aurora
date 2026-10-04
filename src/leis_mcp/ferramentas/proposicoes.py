@@ -16,8 +16,6 @@ from leis_mcp.texto import ano_da_data, ementa_sem_profissoes, ids_inteiros, nor
 logger = logging.getLogger(__name__)
 
 #: Proposições sem votação nominal que acompanham uma busca `somente_votadas`.
-#: Poucas de propósito: o apêndice impede um silêncio enganoso ("não há nada
-#: sobre o tema") sem trazer o tema inteiro de novo.
 MAX_APENDICE_SEM_VOTACAO = 5
 
 #: Trechos de inteiro teor anexados a cada proposição da busca de ementas.
@@ -32,13 +30,10 @@ LOTE = 900
 #: Mesmo k do RRF do buscador.
 K_RRF = 60.0
 
-#: Proposições que cada lista (ementas, trechos) leva à fusão por termo. Com
-#: 1/(60 + posição), a 200ª posição ainda pesa 0,004, um terço da 1ª; cortar
-#: cedo demais tirava da fusão quem só aparecia bem numa das listas.
+#: Proposições que cada lista (ementas, trechos) leva à fusão por termo.
 CANDIDATOS_POR_LISTA = 200
 
-#: Trechos pedidos por proposição candidata, para a agregação por proposição
-#: ter de onde tirar a ordem mesmo quando uma proposição domina os trechos.
+#: Trechos pedidos por proposição candidata, para a agregação por proposição.
 TRECHOS_POR_PROPOSICAO_CANDIDATA = 5
 
 #: Faixas de `destaque_semantico` (ver `_confianca`).
@@ -55,9 +50,8 @@ def _autores(conn, ids: list[int]) -> dict[int, str]:
     """
     Autores de cada proposição, na ordem oficial.
 
-    Onde a API da casa informou a autoria estruturada (`autores_proposicao`,
-    fonte 'documento'), ela vale: pessoas e instituições. Nas demais, os
-    parlamentares de `autoria`.
+    Vale a autoria estruturada (`autores_proposicao`, fonte 'documento') quando
+    existe; nas demais, os parlamentares de `autoria`.
     """
     saida: dict[int, list[str]] = {}
     for i in range(0, len(ids), LOTE):
@@ -140,8 +134,7 @@ def _detalhar(conn, linhas) -> list[dict[str, Any]]:
             identificacoes.setdefault(pid, []).append(
                 f"{sigla} {numero}/{ano} ({'Câmara' if casa_id == 'CD' else 'Senado'})"
             )
-        # Autoria de iniciativa informada pela API do Senado, quando difere da do documento
-        # (matéria vinda da Câmara: o documento é "Câmara dos Deputados", a iniciativa é quem propôs).
+        # Autoria de iniciativa (API do Senado), quando difere da do documento.
         for pid, nome, partido, uf in conn.execute(
             f"""
             SELECT id_proposicao, nome, partido, uf FROM autores_proposicao
@@ -152,8 +145,7 @@ def _detalhar(conn, linhas) -> list[dict[str, Any]]:
         ):
             iniciativa.setdefault(pid, []).append(_rotulo_autor(nome, partido, uf))
         for pid, n in conn.execute(
-            # `tem_voto_nominal = 1`: o campo devolvido se chama
-            # `votacoes_nominais`. `votacoes` também guarda as simbólicas.
+            # `votacoes` também guarda as simbólicas: filtrar por `tem_voto_nominal = 1`.
             f"SELECT id_proposicao, COUNT(*) FROM votacoes WHERE id_proposicao IN ({marcadores}) "
             "AND tem_voto_nominal = 1 GROUP BY 1",
             lote,
@@ -223,8 +215,7 @@ def buscar_proposicao(
             params,
         ).fetchall()
         if not linhas:
-            # Número anterior ou da outra casa, declarado pelo Senado: a Câmara
-            # renumera (o PL 3729/2004 hoje é o PL 2159/2021).
+            # Número anterior ou da outra casa, declarado pelo Senado (a Câmara renumera).
             filtros_id = ["UPPER(i.sigla) = ?", "i.numero = ?"]
             params_id: list[Any] = [sigla, int(numero)]
             if ano:
@@ -347,12 +338,8 @@ def _apendice_sem_votacao(
     top_k: int,
 ) -> list[dict[str, Any]]:
     """
-    Proposições relevantes do tema que NÃO têm votação nominal.
-
-    A proposição central de um tema costuma ter sido aprovada simbolicamente (o
-    PL 2338/2023, marco da IA, sumia da busca inteira). "Ninguém tem voto
-    nominal nela" é resposta, não lacuna. Usa todos os termos: recall reduzido
-    em troca de tempo é informação que o modelo preenche por conta própria.
+    Proposições relevantes do tema que não têm votação nominal (muitas são
+    aprovadas simbolicamente). Usa todos os termos.
     """
     if lista_ids_chamador is not None and not lista_ids_chamador:
         return []
@@ -382,9 +369,7 @@ def _apendice_sem_votacao(
         return []
 
     votados = ids_votados()
-    # Tipos deliberáveis (deduzidos do banco): sem isto, pareceres e
-    # substitutivos avulsos que herdam a ementa da matéria principal ocupavam
-    # as vagas repetindo o mesmo texto.
+    # Só tipos deliberáveis: pareceres e substitutivos avulsos repetem a ementa da matéria principal.
     deliberaveis = tipos_deliberaveis()
     selecionadas = []
     for c in sorted(candidatos.values(), key=lambda c: c["score"], reverse=True):
@@ -414,31 +399,17 @@ def _apendice_sem_votacao(
 
 def _confianca(item: dict[str, Any]) -> str:
     """
-    Confiança de UM resultado, sem filtrar nada.
+    Confiança de um resultado, sem filtrar nada.
 
-    São DOIS sinais medidos, de naturezas diferentes: `casamento_lexical` é o
-    BM25 do FTS5 dizendo que o termo aparece no texto, e `destaque_semantico` é
-    o quanto a ementa se afasta do acervo para aquele termo. Faixas medidas com
-    Qwen3 em avaliacao/embeddings/README.md: a matéria central de cada tema tem
-    destaque mediano de 2,24; consultas sem sentido, ~1,6.
-
-    Quando os dois concordam, o rótulo vale. Quando se contradizem — o termo
-    aparece no texto E o vetor diz que o documento não trata daquilo — esta
-    função NÃO arbitra: devolve `indeterminada`, e os dois números seguem no
-    resultado para quem lê decidir.
-
-    Era aqui que um veto de crédito suplementar de R$ 2,15 bi saía como
-    `alta` para "saneamento básico", com destaque 0,46 — abaixo até do limiar
-    de `moderada`. O casamento era o nome de um programa orçamentário dentro do
-    anexo. O booleano ganhava do número sempre, por construção; comprimir dois
-    sinais discordantes num veredito é o mesmo erro da antiga coluna
-    `natureza`, e a saída é não comprimir.
+    Dois sinais: `casamento_lexical` (o termo aparece no texto, pelo FTS5) e
+    `destaque_semantico` (quanto a ementa se destaca do acervo para o termo).
+    Quando concordam, o rótulo vale; quando se contradizem, devolve
+    `indeterminada` e os dois números seguem no resultado.
     """
     d = item.get("destaque_semantico")
     lexical = bool(item.get("casamento_lexical"))
     if d is None:
-        # Sem vetor não há segundo sinal para conferir: o lexical é tudo o que
-        # existe, e vale pelo que é.
+        # Sem vetor, o lexical é o único sinal.
         return "alta" if lexical else "baixa"
     if d >= LIMIAR_DESTAQUE_ALTO:
         return "alta"
@@ -450,7 +421,7 @@ def _confianca(item: dict[str, Any]) -> str:
 
 
 def _motivo_da_confianca(item: dict[str, Any]) -> str:
-    """Em uma frase, de onde veio a confiança — para a LLM ler o sinal, não o rótulo."""
+    """Em uma frase, de onde veio a confiança."""
     d = item.get("destaque_semantico")
     lexical = bool(item.get("casamento_lexical"))
     if d is None:
@@ -488,23 +459,16 @@ def _calcular_busca(
     Fusão por PROPOSIÇÃO, por Reciprocal Rank Fusion (k = 60).
 
     Para cada termo entram duas listas de proposições: a das ementas (já
-    híbrida, lexical + densa) e a dos trechos de inteiro teor agregados por
-    proposição (a posição de cada proposição é a do seu melhor trecho). Cada
-    lista contribui 1/(60 + posição), somado entre listas e termos.
-
-    Antes a ordem final era o cosseno cru, que misturava cossenos de trechos e
-    de ementas (escalas diferentes), e os trechos entravam um a um: uma
-    proposição com muitos trechos parecidos ocupava as vagas de outras. O
-    cosseno segue na saída só como informação.
+    híbrida) e a dos trechos de inteiro teor agregados por proposição (vale a
+    posição do melhor trecho). Cada lista contribui 1/(60 + posição), somado
+    entre listas e termos. O cosseno segue na saída só como informação.
     """
     cfg = obter_config()
     buscador = obter_buscador()
     ids_chamador = list(lista_ids) if lista_ids is not None else None
     universo = ids_chamador
     if somente_votadas:
-        # Prioriza, não esconde: só ~0,3% das proposições têm voto nominal, e
-        # sem o filtro a busca devolve projetos que nunca foram votados. As
-        # relevantes sem voto voltam no apêndice.
+        # Só ~0,3% das proposições têm voto nominal; as relevantes sem voto voltam no apêndice.
         votados = ids_votados()
         base = ids_chamador if ids_chamador is not None else sorted(votados)
         universo = [i for i in base if i in votados]
@@ -730,10 +694,7 @@ def busca_semantica_proposicoes(
         chave_de("busca_semantica", *argumentos), lambda: _calcular_busca(*argumentos)
     )
 
-    # Índice compacto de TODOS os resultados, na ordem de relevância. Vai em
-    # toda página quando há mais de uma: um modelo que não peça a página 2
-    # ainda sabe quais proposições existem e quantas são — e não conclui que
-    # "só há estas" a partir do detalhe parcial.
+    # Índice compacto de todos os resultados, repetido em toda página.
     indice = [
         {
             "posicao": i,
@@ -836,8 +797,7 @@ def busca_inteiro_teor(
 ) -> dict[str, Any]:
     cfg = obter_config()
     termo = (termo or "").strip()
-    # Sem termo não há o que buscar: devolver trechos arbitrários induziria o
-    # modelo a tratá-los como resposta.
+    # Sem termo não há o que buscar.
     if not termo:
         return {"erro": "SEM_TERMO", "trechos": []}
     top_k = max(
@@ -875,10 +835,8 @@ def busca_inteiro_teor(
         falhas: list[dict[str, Any]] = []
         nao_tentadas: list[int] = []
         if sem_trechos:
-            # Como no projeto original, as proposições pedidas sem inteiro teor
-            # indexado são lidas na hora (download do documento oficial). O
-            # banco continua somente leitura: os trechos ficam só em memória.
-            # Filtros de casa e data valem também para elas.
+            # Proposições pedidas sem inteiro teor indexado são lidas na hora
+            # (trechos só em memória); os filtros de casa e data valem para elas.
             limite = cfg.sob_demanda_max_proposicoes if cfg.sob_demanda else 0
             alvo = _filtrar_por_casa_e_data(sem_trechos, casa, data_inicio, data_fim)
             nao_tentadas = alvo[limite:]

@@ -1,4 +1,4 @@
-# Deploy do leis-mcp na VM do Google Cloud.
+# Deploy da Aurora na VM do Google Cloud.
 
 name: Deploy no GCP
 
@@ -67,7 +67,7 @@ jobs:
           ZONA="${ZONA}"
           REGIAO="${ZONA%-*}"
           NOME_VM="${NOME_VM}"
-          TAG_REDE="leis-mcp"
+          TAG_REDE="aurora"
           BUCKET_BACKUP="${BUCKET_BACKUP}"
           HF_REPO_BANCO="${HF_REPO_BANCO}"
           EOF

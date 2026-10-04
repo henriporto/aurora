@@ -1,9 +1,4 @@
-"""
-O que a base cobre, medido no próprio banco.
-
-Os valores são calculados uma vez por processo. O banco só muda quando o
-servidor é reiniciado com um arquivo novo, então não há o que invalidar.
-"""
+"""O que a base cobre, medido no próprio banco e calculado uma vez por processo."""
 
 from __future__ import annotations
 
@@ -13,12 +8,10 @@ from typing import Optional
 from leis_mcp.dados.banco import conexao
 from leis_mcp.texto import br
 
-#: Abaixo deste número de votações distintas numa casa, considera-se que a
-#: ingestão daquela casa não foi feita.
+#: Abaixo disto, considera-se que a ingestão daquela casa não foi feita.
 MIN_VOTACOES_PARA_COBERTURA = 50
 
-#: Primeiro ano com votos nominais e vetos na base. Usado nos status
-#: FORA_DA_BASE; o alcance exato, com dia, vem de `alcance()`.
+#: Primeiro ano com votos nominais e vetos na base.
 ANO_INICIAL_VOTOS = 2018
 ANO_INICIAL_VETOS = 2018
 
@@ -46,11 +39,7 @@ def cobertura_por_casa() -> dict[str, int]:
 
 
 def tipos_deliberaveis() -> set[str]:
-    """
-    Siglas que o plenário efetivamente delibera, deduzidas do dado: um tipo que
-    já recebeu votação nominal alguma vez. Evita que pareceres e substitutivos
-    avulsos, que herdam a ementa da matéria principal, ocupem vagas de busca.
-    """
+    """Siglas de tipos que já receberam votação nominal alguma vez."""
     global _tipos_deliberaveis
     with _trava:
         if _tipos_deliberaveis is None:
@@ -88,11 +77,7 @@ def alcance() -> dict:
     with _trava:
         if _alcance is None:
             with conexao() as conn:
-                # `tem_voto_nominal = 1` em toda contagem que o texto chama de
-                # "nominal": desde que as votações simbólicas passaram a ser
-                # ingeridas, `votacoes` tem as duas coisas, e contar tudo aqui
-                # fazia o guia anunciar 12.752 votações nominais e 0,9% de
-                # cobertura, contradizendo o 0,3% que ele afirma duas vezes.
+                # `votacoes` tem nominais e simbólicas: filtrar por `tem_voto_nominal = 1`.
                 primeiro, ultimo, n_votacoes = conn.execute(
                     "SELECT MIN(substr(data, 1, 10)), MAX(substr(data, 1, 10)), COUNT(*) "
                     "FROM votacoes WHERE tem_voto_nominal = 1"
@@ -102,9 +87,7 @@ def alcance() -> dict:
                     "SELECT COUNT(DISTINCT id_proposicao) FROM votacoes "
                     "WHERE tem_voto_nominal = 1"
                 ).fetchone()[0]
-                # As simbólicas são decisão sem nomes, e o guia precisa dizer
-                # que elas existem: é o que separa "não temos como saber o voto
-                # de ninguém" de "esta proposição nunca foi votada".
+                # Simbólicas: decisão sem voto individual registrado.
                 n_simbolicas, com_alguma = conn.execute(
                     "SELECT (SELECT COUNT(*) FROM votacoes WHERE tem_voto_nominal = 0), "
                     "(SELECT COUNT(DISTINCT id_proposicao) FROM votacoes)"

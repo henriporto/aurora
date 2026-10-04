@@ -1,9 +1,8 @@
 """
 Log do processo.
 
-Tudo vai para **stderr**. No transporte stdio o `stdout` é o canal do protocolo
-MCP, e qualquer texto que escape para ele corrompe a conexão. Por isso nenhum
-módulo deste pacote usa `print`.
+Tudo vai para stderr: no transporte stdio, o stdout é o canal do protocolo MCP.
+Por isso nenhum módulo deste pacote usa `print`.
 """
 
 from __future__ import annotations

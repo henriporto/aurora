@@ -1,9 +1,8 @@
 """
 Montagem do servidor MCP: ferramentas, recursos, prompts, autenticação e rotas.
 
-As funções de `ferramentas/` não conhecem MCP. Aqui elas ganham nome, descrição
-para o modelo, esquema de parâmetros (via anotações de tipo), tags de controle
-de acesso e anotações de comportamento (`readOnlyHint` etc.).
+As funções de `ferramentas/` ganham aqui nome, descrição, esquema de
+parâmetros, tags de controle de acesso e anotações de comportamento.
 """
 
 from __future__ import annotations
@@ -50,9 +49,7 @@ SOMENTE_LEITURA = {
     "openWorldHint": False,
 }
 
-#: O Claude Code guarda em arquivo qualquer resultado acima de ~25 mil tokens.
-#: Esta anotação eleva o teto por ferramenta (máximo aceito: 500 mil
-#: caracteres). As páginas do servidor ficam abaixo de LEIS_MAX_CHARS_PAGINA.
+#: Eleva o teto de resultado por ferramenta no Claude Code (máximo: 500 mil caracteres).
 META_RESULTADO = {"anthropic/maxResultSizeChars": 500_000}
 
 #: claude.ai e Claude Desktop abandonam a chamada em 240 s.

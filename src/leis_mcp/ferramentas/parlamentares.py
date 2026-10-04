@@ -18,11 +18,9 @@ def buscar_id_parlamentar(
     """
     Parlamentares cujo nome contém as palavras pedidas, sem diferenciar acento.
 
-    Compara palavra a palavra em Python, sem `LIKE`: no LIKE, `_` e `%` são
-    curingas, e `nome="_"` devolvia os 2.178 cadastros. Cada palavra pedida
-    precisa ser o INÍCIO de alguma palavra do nome ("Tab Amar" acha "Tabata
-    Amaral"); só quando nenhum nome casa assim vale o trecho em qualquer
-    posição. Resultado paginado.
+    Compara em Python, sem `LIKE` (onde `_` e `%` são curingas). Cada palavra
+    pedida precisa ser o início de alguma palavra do nome; se nenhum nome casar
+    assim, vale o trecho em qualquer posição. Resultado paginado.
     """
     procuradas = palavras(nome or "")
     if not procuradas:
@@ -99,7 +97,7 @@ def consultar_historico(
     ano: Optional[int] = None,
     pagina: Optional[int] = None,
 ) -> dict[str, Any]:
-    # Papel fora do domínio devolvia [] — indistinguível de "não há resultados".
+    # Papel fora do domínio é erro, não lista vazia.
     if papel is not None and papel.strip().lower() not in PAPEIS_VALIDOS:
         return {
             "erro": "PAPEL_INVALIDO",
@@ -108,8 +106,7 @@ def consultar_historico(
         }
 
     with conexao() as conn:
-        # Rótulo de voto inexistente ('Favorável') produzia lista vazia que o
-        # modelo podia ler como "ele não votou assim".
+        # Rótulo de voto inexistente é erro, não lista vazia.
         if tipo_voto is not None:
             rotulos = sorted(
                 r[0]

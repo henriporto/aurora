@@ -2,21 +2,14 @@
 Inteiro teor sob demanda: baixa, segmenta e busca o texto de uma proposição
 que o ETL ainda não indexou.
 
-O projeto original fazia isso dentro de `busca_inteiro_teor` e gravava os
-trechos no banco. Aqui o banco é somente leitura, então os trechos e vetores
-ficam só em memória (LRU), e a busca neles repete a do índice: lexical por
-radical + cosseno sobre `texto_enriquecido`, fundidos por RRF com k = 60.
+O banco é somente leitura: trechos e vetores ficam só em memória (LRU), e a
+busca neles repete a do índice (lexical por radical + cosseno, fundidos por RRF).
 
-Diferenças deliberadas em relação ao original:
-
-- Senado: a URL gravada (`dadosabertos/materia/<id>`) é um XML de metadados,
-  não o documento. O original tentava ler esse XML como PDF e falhava sempre;
-  aqui a URL do documento é resolvida na API de dados abertos, como faz o
-  `etl/baixar_pdfs_cenario_a.py`;
-- Câmara: `prop_mostrarintegra` às vezes devolve DOCX em vez de PDF; os dois
-  formatos são lidos;
-- só baixa de hosts da Câmara e do Senado, com teto de tamanho e de tempo;
-- a falha é devolvida com o motivo, nunca vira "o texto não trata do tema".
+- Senado: a URL gravada é um XML de metadados; a do documento é resolvida na
+  API de dados abertos.
+- Câmara: `prop_mostrarintegra` pode devolver PDF ou DOCX; os dois são lidos.
+- Só baixa de hosts da Câmara e do Senado, com teto de tamanho e de tempo.
+- A falha é devolvida com o motivo, nunca como "o texto não trata do tema".
 """
 
 from __future__ import annotations
@@ -50,13 +43,10 @@ logger = logging.getLogger(__name__)
 HOSTS_PERMITIDOS = ("camara.leg.br", "senado.leg.br")
 USER_AGENT = "Mozilla/5.0 (compatible; leis-mcp)"
 
-#: Documentos com mais trechos que isto são cortados (e o corte é avisado):
-#: vetorizar dezenas de milhares de trechos em CPU estouraria os 240 s que o
-#: cliente espera por uma chamada.
+#: Acima disto o documento é cortado (com aviso): vetorizar tudo em CPU estouraria o tempo da chamada.
 MAX_TRECHOS_POR_DOCUMENTO = 3000
 
-#: Abaixo disto o texto extraído é quase certamente capa ou PDF digitalizado
-#: como imagem, e a ausência de trecho não diz nada sobre o conteúdo.
+#: Abaixo disto o texto é provavelmente capa ou PDF digitalizado como imagem.
 TEXTO_CURTO = 1500
 
 #: Documentos lidos guardados em memória.
@@ -140,8 +130,7 @@ def _urls_senado(id_materia: int) -> list[str]:
         return 100
 
     candidatos: list[tuple[int, str]] = []
-    # API atual. A antiga (materia/textos) foi descontinuada, mas ainda responde
-    # e é o que o ETL usa; fica como segunda tentativa.
+    # API atual primeiro; a antiga (materia/textos) fica como segunda tentativa.
     try:
         bruto, _ = _baixar(
             "https://legis.senado.leg.br/dadosabertos/processo/documento"
@@ -219,9 +208,7 @@ def _obter_texto(id_proposicao: int, casa: str, url: str) -> tuple[str, str]:
         urls = [url]
     erros = []
     melhor: tuple[str, str] = ("", "")
-    # Até 3 candidatos: o primeiro costuma ser o texto; os seguintes cobrem link
-    # quebrado e PDF digitalizado (sem camada de texto), comum em matérias que
-    # chegam da Câmara, sem transformar a chamada numa varredura.
+    # Até 3 candidatos: os seguintes cobrem link quebrado e PDF sem camada de texto.
     for candidato in urls[:3]:
         try:
             conteudo, _ = _baixar(candidato)
@@ -271,8 +258,7 @@ class _Cache:
             return self._travas_por_id.setdefault(id_proposicao, threading.Lock())
 
     def obter(self, id_proposicao: int) -> Documento:
-        # Uma trava por proposição: duas chamadas simultâneas pelo mesmo ID
-        # baixam uma vez só.
+        # Uma trava por proposição: chamadas simultâneas pelo mesmo ID baixam uma vez só.
         with self._trava_de(id_proposicao):
             ttl = obter_config().cache_ttl_seg
             with self._trava:
@@ -317,8 +303,7 @@ def _ler(id_proposicao: int) -> Documento:
 
     t0 = time.monotonic()
     texto, url_lida = _obter_texto(id_proposicao, casa, url)
-    # Mesmos metadados que o ETL passa ao chunker, para que `texto_enriquecido`
-    # (e portanto o vetor) tenha a mesma forma dos trechos indexados.
+    # Mesmos metadados do ETL, para o vetor ter a mesma forma dos trechos indexados.
     chunks = HierarchicalLegislativeChunker().chunk_document(
         texto,
         {
@@ -421,8 +406,7 @@ def buscar(
         except FalhaSobDemanda as e:
             return str(e)
 
-    # O tempo é quase todo de rede; a vetorização é serializada pela trava do
-    # modelo de qualquer forma.
+    # O tempo é quase todo de rede; a vetorização já é serializada pela trava do modelo.
     with ThreadPoolExecutor(max_workers=min(len(ids), 5) or 1) as pool:
         resultados = list(pool.map(obter, ids))
     for id_proposicao, doc in zip(ids, resultados):

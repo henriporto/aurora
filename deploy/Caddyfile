@@ -1,5 +1,4 @@
 # HTTPS automático (Let's Encrypt) para o domínio em LEIS_DOMINIO.
-# O DNS do domínio precisa apontar para o IP da VM antes de subir.
 
 {$LEIS_DOMINIO} {
 	encode zstd gzip
@@ -9,10 +8,8 @@
 	}
 
 	reverse_proxy leis-mcp:8000 {
-		# Respostas em streaming (SSE) não podem ficar presas em buffer.
 		flush_interval -1
-		# Acima dos 235 s que uma ferramenta pode levar (TIMEOUT_FERRAMENTA_SEG):
-		# com menos, o cliente recebe 502 em vez do resultado ou do aviso de tempo.
+		# Acima do tempo máximo de uma ferramenta (235 s); com menos, o cliente recebe 502.
 		transport http {
 			read_timeout 245s
 		}
@@ -24,9 +21,7 @@
 		-Server
 	}
 
-	# O log de acesso vai para o Cloud Logging (Ops Agent). O retorno do login
-	# (/auth/callback) traz na URL o código de autorização e o state do OAuth:
-	# são de uso único, mas não precisam ficar gravados.
+	# Esconde o código e o state do OAuth que vêm na URL de /auth/callback.
 	log {
 		output stdout
 		format filter {

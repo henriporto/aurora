@@ -4,17 +4,9 @@ Prepara uma cópia do leis.db para produção.
 
     python scripts/preparar_banco.py /caminho/leis.db dados/leis-producao.db [--verificar]
 
-Por que não copiar o arquivo direto:
-
-1. O banco de desenvolvimento está em modo WAL. Um banco WAL aberto num volume
-   somente leitura precisa dos arquivos -wal/-shm e falha de formas pouco
-   óbvias. A cópia sai em `journal_mode=DELETE`, um arquivo único.
-2. A API de backup do SQLite produz uma cópia consistente mesmo que o banco de
-   origem esteja aberto por outro processo (o ETL, por exemplo).
-3. O SHA-256 gravado ao lado permite conferir, na VM, que os ~9 GB chegaram
-   íntegros antes de trocar o banco em uso.
-
-Só usa a biblioteca padrão: roda com qualquer Python 3.10+.
+Usa a API de backup do SQLite (cópia consistente mesmo com o banco aberto),
+grava em `journal_mode=DELETE` (arquivo único, legível em volume somente
+leitura) e gera o SHA-256 ao lado. Só usa a biblioteca padrão.
 """
 
 from __future__ import annotations
@@ -26,8 +18,7 @@ import sys
 import time
 from pathlib import Path
 
-#: As mesmas de TABELAS_OBRIGATORIAS (src/leis_mcp/dados/banco.py): sem uma delas
-#: o servidor não sobe, e é melhor saber antes de enviar o arquivo.
+#: As mesmas de TABELAS_OBRIGATORIAS (src/leis_mcp/dados/banco.py).
 TABELAS = (
     "proposicoes", "parlamentares", "autoria", "relatorias", "votos", "votacoes",
     "proposicoes_fts", "proposicoes_embeddings", "proposicoes_chunks",

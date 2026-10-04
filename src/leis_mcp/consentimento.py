@@ -1,16 +1,9 @@
-"""Tela de consentimento em português.
+"""Tela de consentimento do FastMCP em português.
 
-O FastMCP mostra, antes do login no Google, uma página perguntando se a pessoa
-permite que o cliente (o Claude, por exemplo) use o servidor. A página original
-é em inglês e põe em destaque o endereço de retorno ("Credentials will be sent
-to…"), o que assusta quem não é técnico.
-
-Aqui só o HTML é trocado. O token anti-fraude, os cookies e o envio do
-formulário continuam sendo os do FastMCP: os campos `txn_id`, `csrf_token`,
-`submit` e `action` precisam manter estes nomes e valores.
-
-O domínio de destino continua à vista, porque é ele que denuncia um cliente
-malicioso; o endereço completo vai para "Detalhes técnicos".
+Só o HTML é trocado: token anti-fraude, cookies e envio do formulário continuam
+os do FastMCP, e os campos `txn_id`, `csrf_token`, `submit` e `action` precisam
+manter nomes e valores. O domínio de destino fica à vista; o endereço completo
+vai para "Detalhes técnicos".
 """
 
 from __future__ import annotations
@@ -159,8 +152,7 @@ def pagina_de_consentimento(
 def instalar() -> None:
     """Faz o FastMCP usar a página em português.
 
-    Não há parâmetro público para isso: o módulo `consent` chama a função pelo
-    nome que importou, então é esse nome que se troca. Se uma versão nova do
-    FastMCP mudar os argumentos de `create_consent_html`, confira esta página.
+    Não há parâmetro público: troca o nome que o módulo `consent` importou.
+    Conferir ao atualizar o FastMCP, se `create_consent_html` mudar de argumentos.
     """
     _consent.create_consent_html = pagina_de_consentimento

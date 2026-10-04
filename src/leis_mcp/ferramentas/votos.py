@@ -1,12 +1,9 @@
 """
 Como parlamentares votaram.
 
-Princípio que atravessa este módulo: **o código não decide o que foi votado.**
-Uma proposição passa por várias votações — requerimento de urgência, texto,
-emendas, destaques — e só a descrição oficial diz qual é qual. Um classificador
-por expressão regular já existiu no projeto original e errava 44% do que
-chamava de mérito ("Mantido o texto" é resultado de destaque, não do texto).
-Por isso as ferramentas entregam a descrição crua de cada votação e nunca
+O código não decide o que foi votado: uma proposição passa por várias votações
+(urgência, texto, emendas, destaques), e só a descrição oficial diz qual é
+qual. As ferramentas entregam a descrição crua de cada votação e nunca
 colapsam várias votações num voto só.
 """
 
@@ -28,9 +25,8 @@ from leis_mcp.dados.cobertura import (
 from leis_mcp.paginacao import paginar
 from leis_mcp.texto import ids_inteiros, rotulo_proposicao
 
-#: Rótulos de `votos.tipo_voto` que registram presença sem posição (o Senado os
-#: grava; a Câmara omite a linha). "Artigo 17" é o presidente da sessão na
-#: Câmara, que pelo art. 17 do RICD não vota nas deliberações ordinárias.
+#: Rótulos de `votos.tipo_voto` que registram presença sem posição. "Artigo 17"
+#: é o presidente da sessão na Câmara, que não vota (art. 17 do RICD).
 VOTOS_SEM_POSICIONAMENTO = {
     "Ausente",
     "Não registrou voto",
@@ -40,12 +36,10 @@ VOTOS_SEM_POSICIONAMENTO = {
     "Artigo 17",
 }
 
-#: Lote de parâmetros por consulta. O SQLite aceita 32.766 variáveis; lotes
-#: menores mantêm os planos de consulta previsíveis.
+#: Lote de parâmetros por consulta (o SQLite aceita 32.766 variáveis).
 LOTE = 900
 
-#: Códigos oficiais do Senado para quem não expressou posição (a Câmara não
-#: publica linha para quem não votou). Descrições da API do Senado.
+#: Códigos oficiais do Senado para quem não expressou posição.
 MOTIVOS_SENADO = {
     "NCom": "não compareceu",
     "AP": "ausente em atividade parlamentar",
@@ -62,10 +56,8 @@ MOTIVOS_SENADO = {
     "Artigo 17": "presidia a sessão (art. 17 do RICD: o presidente da Câmara não vota)",
 }
 
-#: Linhas por votação a partir das quais uma votação do Senado está completa:
-#: a API lista todos os senadores em exercício (81, ou 80 com cadeira vaga).
-#: Medido depois de gravar as ausências: 585 votações com 81, 28 com 80 e 3 de
-#: abril de 2019 com 52–68 linhas (incompletas na própria API).
+#: Linhas a partir das quais uma votação do Senado está completa: a API lista
+#: todos os senadores em exercício (81, ou 80 com cadeira vaga).
 MIN_LINHAS_VOTACAO_SENADO_COMPLETA = 80
 
 AVISO_LEITURA_DA_DESCRICAO = (
@@ -78,9 +70,8 @@ AVISO_LEITURA_DA_DESCRICAO = (
     "antes de dizer se o voto foi por manter ou por retirar o trecho."
 )
 
-#: Quórum para APROVAR (ou manter trecho de) PEC e PLP. Nesses tipos o trecho
-#: destacado pode cair mesmo com mais Sim que Não: medido na base, as 10
-#: votações "Suprimido o texto" com Sim > Não são todas de PEC ou PLP.
+#: Quórum para aprovar (ou manter trecho de) PEC e PLP: o trecho destacado
+#: pode cair mesmo com mais Sim que Não.
 QUORUM_QUALIFICADO = {
     "PEC": "3/5 dos membros, em dois turnos: 308 deputados ou 49 senadores",
     "PLP": "maioria absoluta: 257 deputados ou 41 senadores",
@@ -131,9 +122,8 @@ def _consolidar(linhas: list[sqlite3.Row], total_votacoes: int) -> dict[str, Any
     """
     Todas as votações de uma proposição em que o parlamentar registrou voto.
 
-    Com mais de uma, NÃO há campo `voto` raso: eleger a votação "principal" é
-    juízo legislativo. No PL 10.372/2018 a escolha automática afirmou "Não" no
-    mérito para quem votou Sim no substitutivo e Não num destaque.
+    Com mais de uma, não há campo `voto` raso: eleger a votação "principal" é
+    juízo legislativo.
     """
     formatados = sorted(
         (_formatar_voto(r) for r in linhas), key=lambda v: str(v.get("data") or "")
@@ -235,8 +225,7 @@ def status_por_proposicao(
             "SELECT casa FROM parlamentares WHERE id_parlamentar = ?", (id_parlamentar,)
         ).fetchone()
         casa_do_parlamentar = linha_casa["casa"] if linha_casa else None
-        # Dias em que ele tem QUALQUER linha na casa (voto ou ausência registrada):
-        # prova de exercício que prevalece sobre o histórico.
+        # Dias em que ele tem qualquer linha na casa: prova de exercício que prevalece sobre o histórico.
         dias_com_registro = {
             r[0]
             for r in conn.execute(
@@ -363,8 +352,7 @@ def status_por_proposicao(
             )
             continue
 
-        # Sem votação nominal: simbólica ou lacuna de cobertura. Só é lícito
-        # dizer "foi simbólica" se a casa e o período estiverem cobertos.
+        # Sem votação nominal: só é "simbólica" se a casa e o período estiverem cobertos.
         casa = meta["casa"] if meta else None
         casa_sem_dados = cobertura.get(casa, 0) < MIN_VOTACOES_PARA_COBERTURA
         fora_do_periodo = bool(meta) and (
@@ -418,9 +406,7 @@ def consultar_votos(
             ),
         }
 
-    # Lista FORNECIDA sem nenhum ID válido é erro de chamada. Antes caía no
-    # caminho "histórico completo" e despejava centenas de votos justamente
-    # quando o modelo se confundiu.
+    # Lista fornecida sem nenhum ID válido é erro de chamada, não histórico completo.
     if lista_ids is not None and not ids_alvo:
         return {
             "erro": "LISTA_IDS_SEM_ID_VALIDO",
@@ -434,10 +420,7 @@ def consultar_votos(
 
     if ids_alvo:
         todos = status_por_proposicao(id_parl, ids_alvo)
-        # Resumo de TODAS as proposições: o status e os votos distintos de cada
-        # uma cabem em pouco espaço e bastam para não concluir errado mesmo sem
-        # ler as páginas seguintes; o detalhe (descrição de cada votação) é
-        # paginado.
+        # Resumo de todas as proposições em toda página; o detalhe é paginado.
         resumo = [
             {
                 "id_proposicao": r["id_proposicao"],
@@ -472,8 +455,7 @@ def consultar_votos(
             saida_lista["aviso_sistema"] = paginacao["aviso"]
         return saida_lista
 
-    # Sem lista: histórico completo, do mais recente para o mais antigo, em
-    # páginas — nenhum voto é omitido, e o retrato do total vai junto.
+    # Sem lista: histórico completo, do mais recente para o mais antigo, paginado.
     with conexao(row_factory=True) as conn:
         linhas = conn.execute(
             _SELECT_VOTOS
@@ -528,13 +510,7 @@ def placar_por_votacao(
     listar_parlamentares: bool = False,
     pagina: Optional[int] = None,
 ) -> dict[str, Any]:
-    """
-    Placar de cada votação nominal das proposições, nunca somado entre votações.
-
-    Substitui o SQL que o modelo escrevia à mão para perguntas de bancada. Esse
-    SQL já produziu "1.432 Sim x 1.794 Não" para o PL 3626/2023 somando oito
-    votações diferentes — um placar que não corresponde a decisão nenhuma.
-    """
+    """Placar de cada votação nominal das proposições, nunca somado entre votações."""
     ids = ids_inteiros(lista_ids) or []
     if not ids:
         return {"erro": "LISTA_IDS_SEM_ID_VALIDO", "recebido": lista_ids}
@@ -615,11 +591,7 @@ def placar_por_votacao(
         )
     )
 
-    # Os placares NUMÉRICOS de todas as votações vão sempre completos, em toda
-    # página: são pequenos e são o que responde "como votou a bancada". O que
-    # pagina são as listas de NOMES, que podem somar centenas de parlamentares
-    # por votação. Assim uma resposta que pare na página 1 continua com os
-    # números certos.
+    # Os placares numéricos vão completos em toda página; só as listas de nomes paginam.
     placares: list[dict[str, Any]] = []
     listas_de_nomes: list[dict[str, Any]] = []
     for vt in votacoes:
@@ -643,8 +615,7 @@ def placar_por_votacao(
                 "placar": dict(sorted(com_posicao.items(), key=lambda x: -x[1])),
                 "sem_posicao_registrada": sem_posicao,
                 "total_com_posicao": sum(com_posicao.values()),
-                # Do plenário inteiro, mesmo com filtro de partido/UF: é o que
-                # se compara com o resultado oficial da descrição.
+                # Do plenário inteiro, mesmo com filtro de partido/UF.
                 "sim_superou_nao": (
                     (placar_total if filtros else placar).get(vt["id_votacao"], {}).get("Sim", 0)
                     > (placar_total if filtros else placar).get(vt["id_votacao"], {}).get("Não", 0)
@@ -739,11 +710,9 @@ def placar_por_votacao(
 # ---------------------------------------------------------------------------
 
 
-# Os cinco status que a regra 2-B trata como AUSÊNCIA DE DADO. Nenhum deles
-# entra em `proposicoes_com_votacao_em_que_nao_votou`, porque um id nesse campo
-# se lê como omissão da pessoa. `AUSENTE` está na lista de propósito: no Senado
-# ele vem com `motivo_oficial` (licença, missão, não compareceu), e chamar uma
-# licença médica de "não votou" é o mesmo erro, só mais difícil de perceber.
+# Status tratados como ausência de dado: nenhum entra em
+# `proposicoes_com_votacao_em_que_nao_votou`. `AUSENTE` está na lista porque no
+# Senado vem com `motivo_oficial` (licença, missão).
 _SEM_VOTO_QUE_NAO_E_FALTA = frozenset(
     {"AUSENTE", "OUTRA_CASA", "FORA_DE_EXERCICIO", "SEM_VOTACAO_NOMINAL", "FORA_DA_BASE"}
 )
@@ -753,12 +722,8 @@ def _sem_voto_detalhado(id_parlamentar: int, ids_sem_voto: list[int]) -> dict[st
     """
     Separa "não votou" de "não tinha como votar", nas proposições sem voto dele.
 
-    Usa `status_por_proposicao`, a MESMA função que alimenta `consultar_votos`.
-    Antes esta ferramenta decidia por conta própria — só olhava se a proposição
-    tinha votação nominal — e uma deputada da Câmara aparecia como tendo faltado
-    a uma votação do Senado. As duas ferramentas respondiam coisas contrárias
-    sobre o mesmo fato; derivar as duas do mesmo lugar é o que impede a
-    divergência de voltar.
+    Usa `status_por_proposicao`, a mesma função de `consultar_votos`, para as
+    duas ferramentas não divergirem.
     """
     if not ids_sem_voto:
         return {"proposicoes_com_votacao_em_que_nao_votou": []}
@@ -799,11 +764,9 @@ def posicao_consolidada(
     """
     O voto de cada parlamentar em cada votação de cada proposição, lado a lado.
 
-    Existe para "quem se alinha comigo sobre o tema X": um tema tem várias
-    proposições, e votar a favor de uma não é votar a favor da outra. Caso que
-    motivou: senadores que votaram Sim no PL 2234/2022 e Não no PL 3626/2023
-    foram apresentados como "favoráveis a bets". Aqui a divergência entre
-    proposições aparece como fato, sem o código julgar qual votação é de mérito.
+    Um tema tem várias proposições, e votar a favor de uma não é votar a favor
+    da outra: a divergência aparece como fato, sem o código julgar qual votação
+    é de mérito.
     """
     parlamentares = ids_inteiros(ids_parlamentares) or []
     ids = ids_inteiros(lista_ids) or []
@@ -846,8 +809,7 @@ def posicao_consolidada(
             com_votacao |= {
                 r[0]
                 for r in conn.execute(
-                    # Numa votação simbólica ninguém tem voto individual, e a
-                    # ausência viraria omissão do parlamentar.
+                    # Em votação simbólica ninguém tem voto individual.
                     f"SELECT DISTINCT id_proposicao FROM votacoes WHERE id_proposicao IN ({mi}) "
                     "AND tem_voto_nominal = 1",
                     lote_i,

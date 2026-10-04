@@ -1,11 +1,4 @@
-# Imagem do servidor leis-mcp.
-#
-# O banco legislativo NÃO entra na imagem: é montado como volume somente
-# leitura. O modelo de embeddings ENTRA, baixado no build, para que o servidor
-# rode sem acesso ao Hugging Face (HF_HUB_OFFLINE=1) e nunca caia num modelo
-# ausente em produção.
-#
-# Build (a partir da raiz do projeto):
+# Imagem do servidor da Aurora.
 #   docker build -f deploy/Dockerfile -t leis-mcp .
 
 FROM python:3.12-slim AS base
@@ -23,12 +16,10 @@ COPY --from=ghcr.io/astral-sh/uv:0.11 /uv /usr/local/bin/uv
 
 WORKDIR /app
 
-# Dependências primeiro, em camada própria: mudar o código não rebaixa o torch.
 COPY pyproject.toml uv.lock README.md ./
 RUN uv sync --frozen --no-dev --no-install-project
 
-# Modelo antes do código: senão cada mudança em src/ baixa de novo ~1,2 GB e
-# deixa uma camada órfã do mesmo tamanho no disco da VM.
+# Modelo antes do código: senão cada mudança em src/ baixa ~1,2 GB de novo.
 RUN /app/.venv/bin/python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('${EMBEDDING_MODEL}', device='cpu')" \
     && chmod -R a+rX /opt/hf
 
@@ -52,8 +43,7 @@ ENV PATH="/app/.venv/bin:${PATH}" \
 USER leis
 EXPOSE 8000
 
-# start-period cobre o aquecimento (modelo + ~430 mil vetores em memória), com
-# folga para o disco frio da VM logo depois de um boot.
+# start-period cobre o aquecimento (modelo e vetores em memória).
 HEALTHCHECK --interval=30s --timeout=5s --start-period=300s --retries=3 \
     CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/saude', timeout=4).status == 200 else 1)"
 

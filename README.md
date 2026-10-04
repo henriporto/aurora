@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="http://auroravoto.com.br/"><img src="assets/lobo.png" alt="Aurora" width="120"></a>
+  <a href="https://auroravoto.com.br/"><img src="assets/lobo.png" alt="Aurora" width="120"></a>
 </p>
 
 <h1 align="center">Aurora</h1>
@@ -17,42 +17,26 @@
   <img src="https://img.shields.io/badge/Google_Cloud-4285F4?style=for-the-badge&logo=googlecloud&logoColor=white" alt="Google Cloud">
 </p>
 
-**As eleições estão chegando, e perguntar a uma IA sobre política é um tiro no escuro.**
-Ela não sabe como cada parlamentar votou, não leu os projetos de lei e, sem esse
-contexto, inventa respostas ou entrega só metade da história.
+**As eleições estão chegando, e perguntar a uma IA sobre política é um tiro no escuro.** Ela não sabe como cada parlamentar votou, não leu os projetos de lei e, sem esse contexto, inventa respostas ou entrega só metade da história.
 
-Este projeto dá à IA acesso aos dados oficiais da Câmara e do Senado: cada voto
-nominal, cada proposição com o texto na íntegra, quem apresentou, quem relatou e
-o que o presidente vetou. Com isso, dá para perguntar:
-
-- *"O deputado [nome] tem votado a favor das bets?"*
-- *"Como a bancada do [partido] votou na reforma tributária?"*
-- *"Quais senadores votaram contra o marco temporal?"*
-- *"Meu candidato já propôs alguma coisa sobre segurança pública?"*
-- *"Quais parlamentares defendem a regulamentação da inteligência artificial?"*
-- *"Existe algum projeto que proíba celular nas escolas? O que ele diz?"*
-- *"O que o presidente vetou na lei do saneamento básico?"*
+Este projeto dá à IA acesso aos dados oficiais da Câmara e do Senado: cada voto nominal, cada proposição com o texto na íntegra, quem apresentou, quem relatou e o que o presidente vetou.
 
 A resposta sai dos dados, com a votação, a data e o placar, e não da memória do modelo.
 
 ## Como funciona
 
-**O diferencial é a busca (RAG) sobre o conteúdo das leis.** Mais de 740 mil trechos
-de inteiro teor estão indexados numa busca híbrida, semântica e por palavra-chave.
-Por isso, uma pergunta sobre "apostas esportivas" encontra o projeto que fala em
-"loteria de quota fixa", mesmo sem nenhuma palavra em comum. É assim que a IA liga
-um tema a proposições e, delas, aos votos de cada parlamentar.
+**O diferencial é a busca (RAG) sobre o conteúdo das leis.** Mais de 740 mil trechos de inteiro teor estão indexados numa busca híbrida, semântica e por palavra-chave. Por isso, uma pergunta sobre "apostas esportivas" encontra o projeto que fala em "loteria de quota fixa", mesmo sem nenhuma palavra em comum. É assim que a IA liga um tema a proposições e, delas, aos votos de cada parlamentar.
 
-Funciona em qualquer cliente MCP (claude.ai, Claude Desktop, Claude Code, Cursor, VS Code):
-basta conectar a URL do servidor.
+Funciona em qualquer cliente MCP (claude.ai, Claude Desktop, ChatGPT, Claude Code, Cursor, VS Code): basta conectar a URL do servidor.
+
+Para usar sem instalar nada, conecte ao servidor público em `https://mcp.auroravoto.com.br/mcp`. O passo a passo de cada cliente está em [auroravoto.com.br](https://auroravoto.com.br/).
 
 
 ## Como rodar o servidor localmente
 
 >Pré-requisito: ter [uv](https://docs.astral.sh/uv/#installation) instalado.
 
-Rode o script abaixo para baixar o banco (~4 GB de download, 12,1 GB instalado) direto do Hugging Face,
-descomprimir, e salvar em `dados/leis.db`:
+Rode o script abaixo para baixar o banco (~4 GB de download, 12,1 GB instalado) direto do [Hugging Face](https://huggingface.co/datasets/henriporto/aurora), descomprimir, e salvar em `dados/leis.db`:
 
 ```bash
 uv run scripts/baixar_banco.py
@@ -68,6 +52,7 @@ LEIS_AUTH=off uv run leis-mcp
 ## Conectar um cliente
 
 Para que sua IA preferida tenha acesso as ferramentas, conecte dessa forma:
+
 | Cliente | Como |
 | :--- | :--- |
 | Claude Code | `claude mcp add --transport http leis http://127.0.0.1:8000/mcp` |
@@ -89,37 +74,28 @@ Para que sua IA preferida tenha acesso as ferramentas, conecte dessa forma:
 
 ## Tools
 
-`guia_de_pesquisa` (regras e fluxos, chamada primeiro) · `buscar_id_parlamentar` ·
-`consultar_historico` · `buscar_proposicao` · `obter_detalhes_proposicoes` ·
-`busca_semantica_proposicoes` · `busca_inteiro_teor` · `consultar_votos` ·
-`votos_por_tema` · `placar_por_votacao` · `posicao_consolidada` ·
-`mapear_autores_por_tema` · `proposicoes_por_autor_institucional` · `consultar_vetos_presidenciais` ·
-`executar_consulta_sql` (só admin).
+`guia_de_pesquisa` (regras e fluxos, chamada primeiro) · `buscar_id_parlamentar` · `consultar_historico` · `buscar_proposicao` · `obter_detalhes_proposicoes` · `busca_semantica_proposicoes` · `busca_inteiro_teor` · `consultar_votos` · `votos_por_tema` · `placar_por_votacao` · `posicao_consolidada` · `mapear_autores_por_tema` · `proposicoes_por_autor_institucional` · `consultar_vetos_presidenciais` · `executar_consulta_sql` (só admin).
 
-Detalhes em [`docs/ferramentas.md`](docs/ferramentas.md).
+Detalhes de cada ferramenta, dos recursos e dos prompts em [`docs/ferramentas.md`](docs/ferramentas.md). As fontes de dados e os serviços externos usados estão em [`docs/apis_externas.md`](docs/apis_externas.md).
 
-## Mais exemplos de perguntas
+## Perguntas
 
 | Tipo | Exemplo |
 | :--- | :--- |
-| Voto de uma pessoa | "Como a deputada [nome] votou em proposições sobre apostas esportivas?" |
+| Voto de uma pessoa | "Como a deputada [nome] votou em proposições sobre apostas esportivas?" · "O deputado [nome] tem votado a favor das bets?" |
 | Voto de um partido | "Como os deputados do [partido] votaram na reforma tributária?" |
-| Quem votou de cada jeito | "Quais senadores votaram contra a reforma tributária?" |
-| Quem propôs | "Quem apresentou proposições sobre saúde da mulher?" · "Quais propostas [nome] apresentou em 2025?" |
-| Alinhamento | "Sou a favor de regulamentar a inteligência artificial; quais parlamentares se alinham comigo?" |
-| Texto da proposição | "O que diz o artigo 3º do PL 2338/2023?" · "Há proposições que tratam de reconhecimento facial em escolas?" |
+| Quem votou de cada jeito | "Quais senadores votaram contra a reforma tributária?" · "Quais senadores votaram contra o marco temporal?" |
+| Quem propôs | "Quem apresentou proposições sobre saúde da mulher?" · "Quais propostas [nome] apresentou em 2025?" · "Meu candidato já propôs alguma coisa sobre segurança pública?" |
+| Alinhamento | "Sou a favor de regulamentar a inteligência artificial; quais parlamentares se alinham comigo?" · "Quais parlamentares defendem a regulamentação da inteligência artificial?" |
+| Texto da proposição | "O que diz o artigo 3º do PL 2338/2023?" · "Há proposições que tratam de reconhecimento facial em escolas?" · "Existe algum projeto que proíba celular nas escolas? O que ele diz?" |
 | Relatoria | "De quais proposições [nome] foi relator?" |
 | Vetos | "Quais vetos o presidente apresentou sobre saneamento básico?" |
 
-Perguntas que nomeiam a pessoa, o partido ou a proposição e dizem a casa e o
-período, quando importam, rendem respostas mais precisas. O modelo também sabe
-responder "como formulo uma pergunta?": o guia de pesquisa traz estes exemplos.
+Perguntas que nomeiam a pessoa, o partido ou a proposição e dizem a casa e o período, quando importam, rendem respostas mais precisas. O modelo também sabe responder "como formulo uma pergunta?": o guia de pesquisa traz estes exemplos.
 
 ### Prompts prontos
 
-Os modelos de pergunta acima também existem como prompts MCP, com campos para
-preencher: `como_votou`, `como_votou_partido`, `quem_se_alinha`, `quem_propos`,
-`vetos_do_presidente` e `assistente_legislativo` (anexa as regras).
+Os modelos de pergunta acima também existem como prompts MCP, com campos para preencher: `como_votou`, `como_votou_partido`, `quem_se_alinha`, `quem_propos`, `vetos_do_presidente` e `assistente_legislativo` (anexa as regras).
 
 | Cliente | Onde ficam |
 | :--- | :--- |
@@ -129,7 +105,7 @@ preencher: `como_votou`, `como_votou_partido`, `quem_se_alinha`, `quem_propos`,
 
 ### Base de dados
 
-A base possui dados de `2018-02-07` a `2026-09-03`.
+A base possui dados de `2018-02-07` a `2026-09-03` e está publicada no Hugging Face: [henriporto/aurora](https://huggingface.co/datasets/henriporto/aurora).
 
 | Proposições | 429.825 |
 | :--- | ---: |

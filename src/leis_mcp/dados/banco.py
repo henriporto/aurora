@@ -1,11 +1,4 @@
-"""
-Acesso ao `leis.db`, sempre somente leitura.
-
-Todas as conexões com o banco legislativo nascem aqui. O servidor nunca
-escreve nele: ingestão e indexação são trabalho do pipeline de ETL, feito fora
-do servidor. Isso é garantido em duas camadas — `mode=ro` na URI, e o volume
-montado como somente leitura no contêiner.
-"""
+"""Acesso ao `leis.db`, sempre somente leitura (`mode=ro` na URI)."""
 
 from __future__ import annotations
 
@@ -55,12 +48,8 @@ def conexao(row_factory: bool = False) -> Iterator[sqlite3.Connection]:
 
 def limitar_tempo(conn: sqlite3.Connection, segundos: float) -> None:
     """
-    Interrompe qualquer consulta que passe de `segundos`.
-
-    O `timeout` de `sqlite3.connect` é só espera por lock, não tempo de
-    execução: um JOIN cartesiano em `votos` (1,3 milhão de linhas) rodaria até
-    acabar. O progress handler é chamado a cada N instruções da VM do SQLite e,
-    ao devolver valor não nulo, aborta a consulta com `OperationalError`.
+    Interrompe qualquer consulta que passe de `segundos`, via progress handler.
+    O `timeout` de `sqlite3.connect` só limita a espera por lock.
     """
     limite = time.monotonic() + segundos
     conn.set_progress_handler(lambda: 1 if time.monotonic() > limite else 0, 10_000)

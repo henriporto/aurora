@@ -2,18 +2,13 @@
 """
 Remove votações gravadas duas vezes com IDs diferentes (mesma votação na fonte).
 
-Critério de duplicata: mesma casa, mesma data até o minuto, mesma descrição,
-mesmo total E voto idêntico de cada parlamentar. A descrição igual não basta:
-SEN-6071 e SEN-6072 (PEC 48/2019, 11/12/2019) têm descrição e total iguais, mas
-7 senadores votaram diferente. São duas votações, e ficam.
+Duplicata: mesma casa, mesma data até o minuto, mesma descrição, mesmo total e
+voto idêntico de cada parlamentar. Só remove os pares listados em `MANTER`,
+depois de conferir voto a voto; duplicata nova é apenas relatada.
 
-Qual ID fica é decidido par a par (`MANTER`), com o motivo, e o script CONFERE
-a identidade voto a voto antes de mexer. As linhas removidas vão para
-`votos_removidos` (mesmas colunas de `votos`) e o ID para `votacoes_removidas`,
-que os ETLs de votação consultam para não reinserir. Para desfazer:
-`INSERT INTO votos SELECT * FROM votos_removidos WHERE id_votacao = ?`.
-
-Duplicata nova que não esteja em `MANTER` só é relatada, nunca removida.
+As linhas removidas vão para `votos_removidos` e o ID para
+`votacoes_removidas`, que os ETLs de votação consultam para não reinserir.
+Para desfazer: `INSERT INTO votos SELECT * FROM votos_removidos WHERE id_votacao = ?`.
 
     uv run python scripts/remover_votacoes_duplicadas.py --banco dados/leis.db [--aplicar]
     uv run --group etl python etl/criar_tabela_votacoes.py --db dados/leis.db   # depois

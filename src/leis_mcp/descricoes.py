@@ -1,15 +1,10 @@
 """
 Descrições das ferramentas, como o modelo do cliente as lê.
 
-Derivadas das descrições do agente original (`DESC_TOOL_*`), com três ajustes:
-nomes e parâmetros das ferramentas atuais; remoção de uma frase que contradizia
-a regra 9 ("faça múltiplas chamadas com termos separados"); e o esquema do banco
-movido para o recurso `leis://esquema` e para o guia, porque o Claude Code corta
-cada descrição em ~2 KB e o esquema sozinho passava disso.
-
-As descrições são o único texto do servidor que chega com certeza ao modelo em
-todos os clientes. Por isso cada uma carrega as regras críticas da própria
-ferramenta, e a de `guia_de_pesquisa` manda chamá-la primeiro.
+São o único texto do servidor que chega com certeza ao modelo em todos os
+clientes: cada uma carrega as regras críticas da própria ferramenta, e a de
+`guia_de_pesquisa` manda chamá-la primeiro. O Claude Code corta cada descrição
+em ~2 KB, por isso o esquema do banco fica no recurso `leis://esquema` e no guia.
 """
 
 LIMITE_CARACTERES = 2000

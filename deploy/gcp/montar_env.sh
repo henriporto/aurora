@@ -1,16 +1,6 @@
 #!/usr/bin/env bash
-# Monta deploy/.env a partir de variáveis de ambiente, usando deploy/exemplo.env
-# como molde.
-#
+# Monta deploy/.env a partir de variáveis de ambiente, com deploy/exemplo.env como molde.
 #   LEIS_DOMINIO=... GOOGLE_CLIENT_ID=... bash deploy/gcp/montar_env.sh
-#
-# Existe para o GitHub Actions, que tem os segredos no ambiente e não pode
-# guardar um .env no repositório. O molde é o exemplo.env justamente para não
-# haver duas listas de variáveis: uma chave nova entra lá e chega aqui sozinha,
-# com o valor padrão que o exemplo já traz.
-#
-# Só as variáveis presentes no ambiente são substituídas; o resto fica como o
-# exemplo define. Recusa terminar se faltar uma das obrigatórias.
 set -euo pipefail
 DIR="$(cd "$(dirname "$0")" && pwd)"
 RAIZ="$(cd "$DIR/../.." && pwd)"
@@ -28,7 +18,7 @@ if [ ${#faltando[@]} -gt 0 ]; then
   exit 1
 fi
 
-umask 077   # o arquivo nasce 600: contém segredos
+umask 077
 : > "$DESTINO"
 while IFS= read -r linha; do
   if [[ "$linha" =~ ^([A-Z_][A-Z0-9_]*)= ]]; then
@@ -41,8 +31,6 @@ while IFS= read -r linha; do
   printf '%s\n' "$linha" >> "$DESTINO"
 done < "$MOLDE"
 
-# Conferências que o 03_publicar_app.sh repete antes de publicar; falhar aqui
-# dá uma mensagem melhor e mais cedo.
 dominio=$(grep -E '^LEIS_DOMINIO=' "$DESTINO" | cut -d= -f2-)
 url=$(grep -E '^LEIS_URL_PUBLICA=' "$DESTINO" | cut -d= -f2-)
 if [ "${url%/}" != "https://$dominio" ]; then

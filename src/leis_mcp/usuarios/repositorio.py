@@ -1,8 +1,7 @@
 """
 Persistência de usuários e chamadas em `usuarios.db` (SQLite, modo WAL).
 
-É o ÚNICO arquivo que o servidor escreve. Fica separado do `leis.db`, que é
-somente leitura, e sobrevive a trocas do banco legislativo.
+É o único arquivo que o servidor escreve, separado do `leis.db`.
 
 Convenções:
 - datas em UTC, ISO 8601 (`2026-09-16T08:30:00+00:00`), comparáveis como texto;
@@ -251,12 +250,9 @@ class Repositorio:
         ignorar: tuple[str, ...] = (),
     ) -> tuple[Optional[int], int]:
         """
-        Conta as chamadas de hoje e, se houver cota, grava a chamada ANTES de
-        executá-la, na mesma transação (`BEGIN IMMEDIATE`).
-
-        Contar só as chamadas já terminadas deixava passar da cota quem dispara
-        várias em paralelo: todas liam a mesma contagem. Reservada aqui, a
-        chamada em andamento já conta para as seguintes.
+        Conta as chamadas de hoje e, se houver cota, grava a chamada antes de
+        executá-la, na mesma transação (`BEGIN IMMEDIATE`), para chamadas em
+        paralelo não passarem da cota.
 
         Devolve (id da chamada, usadas antes dela); id None = cota esgotada.
         `limite` None = sem cota (admin, ferramenta livre, cota ilimitada).

@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Script de inicialização da VM (roda como root a cada boot; é idempotente).
-# Passado em `--metadata-from-file startup-script=` por 01_criar_infra.sh.
+# Script de inicialização da VM (roda como root a cada boot).
 set -euo pipefail
 
 if ! command -v docker >/dev/null 2>&1; then
@@ -10,9 +9,7 @@ if ! command -v docker >/dev/null 2>&1; then
   systemctl enable --now docker
 fi
 
-# Fora do bloco acima de propósito: numa VM que já tinha Docker, aquele `if`
-# nunca roda, e o zstd (que o 02_banco_do_hf.sh usa para descomprimir o banco
-# vindo do Hugging Face) nunca seria instalado.
+# Fora do bloco do Docker: numa VM que já tem Docker, aquele bloco não roda.
 if ! command -v zstd >/dev/null 2>&1; then
   apt-get update -y
   apt-get install -y zstd
@@ -20,21 +17,15 @@ fi
 
 mkdir -p /srv/leis/app /srv/leis/banco /srv/leis/backup
 
-# Usuários que entram por `gcloud compute ssh` usam docker sem sudo. Só vale
-# para contas que já existiam neste boot; antes disso, use sudo.
 for usuario in $(ls /home); do
   id "$usuario" >/dev/null 2>&1 && usermod -aG docker "$usuario" || true
 done
 
-# Backup diário do usuarios.db às 03:30 (horário da VM, UTC).
 cat > /etc/cron.d/leis-backup <<'CRON'
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin
 30 3 * * * root /srv/leis/app/deploy/gcp/backup_usuarios_na_vm.sh >> /var/log/leis-backup.log 2>&1
 CRON
 
-# Ops Agent: memória e disco no Cloud Monitoring (sem ele o GCP só vê CPU e
-# rede) e os logs dos contêineres no Cloud Logging, de onde saem as métricas
-# de chamadas do painel (04_monitoramento.sh). Falha aqui não impede o servidor.
 if ! dpkg -s google-cloud-ops-agent >/dev/null 2>&1; then
   (cd /tmp && curl -fsSO https://dl.google.com/cloudagents/add-google-cloud-ops-agent-repo.sh \
     && bash add-google-cloud-ops-agent-repo.sh --also-install) \

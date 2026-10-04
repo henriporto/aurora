@@ -1,19 +1,11 @@
 """
 Quem assinou proposições sobre um tema, com a ementa de cada proposição.
 
-Varre as ~429 mil ementas por `LIKE`, e não o top-k da busca semântica: uma
-proposição que cita o tema de passagem fica fora do top-k. Caso medido no
-projeto original — o PL 897/2025 ("Incentivo à Pesquisa em IA com Recursos
-das Apostas") pontua 0,47 numa busca por apostas, abaixo de quarenta outras, e
-era a ÚNICA proposta de fomento do conjunto.
+Varre todas as ementas por `LIKE`, e não o top-k da busca semântica, para não
+perder proposições que citam o tema de passagem.
 
-A ferramenta NÃO classifica o que cada proposição pede. Já classificou
-(`restringe` / `fomenta` / `outra`, por substring de verbos na ementa), e o
-rótulo errava por construção — "irrestrito" e "delimitar" caíam em
-`restringe` — e chegava ao usuário como fato ("a varredura marcou 4
-parlamentares como fomenta"). Foi o mesmo julgamento que removeu a
-`natureza` das votações: entregar o texto oficial e deixar a leitura com o
-modelo, que tem a pergunta em mãos.
+Não classifica o que cada proposição pede: entrega o texto oficial e deixa a
+leitura com o modelo.
 """
 
 from __future__ import annotations
@@ -26,22 +18,14 @@ from leis_mcp.dados.banco import conexao
 from leis_mcp.paginacao import cache, chave_de, paginar
 from leis_mcp.texto import normalizar_casa, palavras, rotulo_proposicao, sem_acento
 
-#: Quantas ementas mostrar por família na prévia. Três é o bastante para a
-#: diferença aparecer sem transformar a prévia num despejo de texto.
+#: Ementas de exemplo por família na prévia.
 AMOSTRAS_POR_FAMILIA = 3
 
 
 def _formas_do_radical(
     conn: sqlite3.Connection, radical: str
 ) -> tuple[dict[str, int], dict[str, list[str]]]:
-    """
-    O que o radical casa nas ementas: as palavras, com frequência, e exemplos.
-
-    Uma varredura só serve às duas coisas. As ementas de exemplo importam mais
-    que a contagem: a contagem separa 'aposta*' de 'aposto*', mas é cega para
-    'inteligência', que é UMA família contendo inteligência artificial e a
-    Agência Brasileira de Inteligência. Lendo três ementas, a mistura aparece.
-    """
+    """O que o radical casa nas ementas: as palavras, com frequência, e ementas de exemplo."""
     formas: dict[str, int] = {}
     exemplos: dict[str, list[str]] = {}
     padrao = re.compile(rf"\b{re.escape(radical)}\w*", re.IGNORECASE)
@@ -76,18 +60,14 @@ def _previa(
     exemplos: dict[str, list[str]],
 ) -> dict[str, Any]:
     """
-    O que o radical alcança, para conferir ANTES de buscar nomes.
-
-    Devolve medição e exemplos, e nenhum parlamentar. Não é recusa: é o
-    primeiro dos dois passos. Quem lê confirma, refina ou desiste — a função
-    não decide por ninguém, e por isso não há limiar nenhum aqui.
+    O que o radical alcança, para conferir antes de buscar nomes: devolve
+    medição e exemplos, e nenhum parlamentar.
     """
     total = sum(n for _, n in familias) or 1
     detalhe = []
     for familia, n in familias[:6]:
         amostras = exemplos.get(familia, [])
-        # Amostra espalhada (começo, meio, fim) em vez das três primeiras: por
-        # id, as primeiras tendem a ser do mesmo ano e do mesmo assunto.
+        # Amostra espalhada (começo, meio, fim): as primeiras tendem a ser do mesmo ano.
         escolhidas = []
         if amostras:
             passo = max(1, len(amostras) // AMOSTRAS_POR_FAMILIA)
@@ -130,38 +110,15 @@ def _previa(
 
 def _calcular(radical: str, secundario: str, confirmado: bool) -> dict[str, Any]:
     with conexao(row_factory=True) as conn:
-        # O que este bloco NÃO faz mais: decidir se o radical é ambíguo.
-        #
-        # Havia aqui uma recusa automática, disparada quando a segunda família
-        # de palavras chegava a 80% da primeira — um limiar calibrado à mão
-        # sobre 16 temas. Ela acertava o que fora calibrada para acertar
-        # ('apost' = aposta × aposto) e era CEGA por construção para o resto:
-        # 'intelig' abre em uma família só ('inteligê', 1.020 ocorrências), e
-        # dentro dela convivem inteligência artificial e a ABIN. Nenhum limiar
-        # sobre forma de palavra enxerga isso, porque a palavra é a mesma.
-        #
-        # Em vez de calibrar melhor, a medição deixou de virar veredito: o
-        # radical curto passa a devolver o que ele de fato casou, e quem lê
-        # decide se são o mesmo assunto. O código mede e mostra; não opina.
+        # Não decide se o radical é ambíguo: mede o que ele casou e mostra.
         familias_medidas: list[tuple[str, int]] = []
         exemplos_por_familia: dict[str, list[str]] = {}
         if len(radical) < 8:
             formas, exemplos_por_familia = _formas_do_radical(conn, radical)
             familias_medidas = _familias(radical, formas)
             if not confirmado and not secundario:
-                # Prévia: mostra o que o radical alcança e devolve o controle.
-                # Nenhum nome sai daqui — é esse o ponto. O aviso enterrado no
-                # meio de 566 parlamentares dependia de alguém lê-lo; sem os
-                # parlamentares, não há o que usar antes de olhar.
-                #
-                # `termo_secundario` pula a prévia porque usá-lo É a resposta a
-                # ela: a própria prévia manda separar o assunto assim, e exigir
-                # confirmação depois disso deixava a chamada em círculo
-                # (prévia -> secundário -> prévia). Versões antigas mantinham a
-                # guarda mesmo com secundário, mas ali ela RECUSAVA e não havia
-                # outra forma de ver o que o radical casava; agora as famílias
-                # e as ementas de exemplo vão no resultado completo de qualquer
-                # jeito, então a informação não se perde.
+                # Prévia: mostra o que o radical alcança, sem nenhum nome.
+                # `termo_secundario` pula a prévia, porque usá-lo já é a resposta a ela.
                 return _previa(radical, secundario, familias_medidas, exemplos_por_familia)
 
         condicoes = ["p.ementa LIKE ?"]
@@ -184,9 +141,8 @@ def _calcular(radical: str, secundario: str, confirmado: bool) -> dict[str, Any]
             ).fetchall()
 
         linhas = buscar(" AND ".join(condicoes), valores)
-        # O LIKE é sensível a acento ('saude' acha 1 proposição, 'saúde' acha
-        # 426). A passada sem acento custa ~7 s contra 0,1 s, por isso só roda
-        # quando a primeira volta praticamente vazia.
+        # O LIKE é sensível a acento. A passada sem acento é lenta (~7 s) e só
+        # roda quando a primeira volta praticamente vazia.
         if len(linhas) < 10:
             conn.create_function("sem_acento", 1, sem_acento, deterministic=True)
             expr = " AND ".join("sem_acento(p.ementa) LIKE ?" for _ in condicoes)
@@ -194,11 +150,8 @@ def _calcular(radical: str, secundario: str, confirmado: bool) -> dict[str, Any]
             if len(alternativa) > len(linhas):
                 linhas = alternativa
 
-        # Votações do tema. Filtra pela EMENTA, não pelos IDs de autoria: as
-        # proposições que vão a voto costumam ter autoria institucional, excluída
-        # acima. Usa SÓ o radical principal: com 'apost' + 'bet' o filtro
-        # combinado apagou as oito votações do PL 3626/2023, cuja ementa não
-        # contém "bet". Uma linha por VOTAÇÃO, nunca somada por proposição.
+        # Votações do tema: filtra pela ementa (não pelos IDs de autoria) e só
+        # pelo radical principal. Uma linha por votação, nunca somada por proposição.
         votadas = conn.execute(
             """
             SELECT p.id_proposicao, p.sigla_tipo, p.numero, p.ano, vt.id_votacao,
@@ -212,8 +165,7 @@ def _calcular(radical: str, secundario: str, confirmado: bool) -> dict[str, Any]
             (f"%{radical}%",),
         ).fetchall()
 
-        # Radical curto demais casa palavras de outro assunto e infla o total em
-        # silêncio ('apost' casa "veto aposto ao Projeto"). Medido comparando
+        # Radical curto demais casa palavras de outro assunto; mede comparando
         # com o radical uma letra mais longo.
         aviso_radical = None
         if len(radical) < 8 and not secundario:
@@ -250,8 +202,7 @@ def _calcular(radical: str, secundario: str, confirmado: bool) -> dict[str, Any]
                 "proposicoes": [],
             },
         )
-        # Todas as proposições e a ementa inteira: a ementa é a única evidência
-        # do que a pessoa propõe, e é o modelo quem a lê.
+        # Todas as proposições, com a ementa inteira.
         pessoa["proposicoes"].append(
             {
                 "id_proposicao": r["id_proposicao"],
@@ -360,10 +311,7 @@ def mapear_autores_por_tema(
         return completo
 
     cabecalho = {k: v for k, v in completo.items() if k != "parlamentares"}
-    # Lista compacta de TODOS os nomes (nome, partido, UF e quantas proposições
-    # assinou). Vai em toda página quando há mais de uma, para o modelo saber
-    # quem existe sem depender da página 6 — mas não traz ementa, então não diz
-    # nada sobre o que a pessoa propõe.
+    # Lista compacta de todos os nomes (sem ementa), repetida em toda página.
     resumo = [
         f"{p['nome']} ({p['partido']}-{p['uf']}): {len(p['proposicoes'])} proposição(ões)"
         for p in completo["parlamentares"]
@@ -406,11 +354,10 @@ def proposicoes_por_autor_institucional(
     Proposições de autoria de uma instituição: Presidência da República / Poder
     Executivo, Câmara dos Deputados, Senado Federal, comissões, tribunais…
 
-    A autoria vem estruturada das APIs (`autores_proposicao`). Cada casa tem seu
-    próprio ID de instituição (o órgão 4 da Câmara é a Mesa Diretora; o ente 4
-    do Senado é o TCU), por isso o ente é (casa da fonte, id). O nome é comparado
-    palavra a palavra, sem acento: cada palavra pedida precisa ser o início de
-    uma palavra do nome. Mais de um ente compatível devolve a lista para escolher.
+    A autoria vem estruturada das APIs (`autores_proposicao`). Cada casa tem
+    seus próprios IDs, por isso o ente é (casa da fonte, id). O nome é comparado
+    palavra a palavra, sem acento; mais de um ente compatível devolve a lista
+    para escolher.
     """
     procuradas = palavras(autor or "")
     casa = normalizar_casa(casa_da_fonte)
@@ -420,9 +367,7 @@ def proposicoes_por_autor_institucional(
             "observacao": "Informe o nome da instituição (ex.: 'Presidência da República') ou o `id_ente`.",
         }
     with conexao() as conn:
-        # Um mesmo ente aparece com nomes diferentes (o órgão 78 da Câmara vem como
-        # "Senado Federal" e "Senado Federal - <senador>"): casa se QUALQUER nome
-        # casar, e o exibido é o mais frequente.
+        # Um ente pode ter vários nomes: casa se qualquer um casar; exibe o mais frequente.
         nomes: dict[tuple[str, int], dict[str, int]] = {}
         tipos: dict[tuple[str, int], str] = {}
         for origem, ente_id, nome, tipo, n in conn.execute(

@@ -10,13 +10,8 @@ Duas camadas, cada uma com seus índices:
   lexical primeiro, e a densa reordena dentro das proposições que o lexical
   encontrou (ou dentro de `lista_ids`).
 
-Diferenças em relação ao buscador original do projeto:
-
-- nunca escreve no banco (o original criava tabelas e triggers a cada busca
-  lexical, o que falha num banco somente leitura);
-- falha ALTO se o modelo de embeddings não carregar — o original caía num
-  "modo mock" com vetores aleatórios, que devolve ranking aleatório sem erro;
-- é seguro para várias threads: carga do acervo e codificação protegidas.
+Nunca escreve no banco, falha se o modelo de embeddings não carregar e é
+seguro para várias threads.
 """
 
 from __future__ import annotations
@@ -42,18 +37,14 @@ K_RRF = 60.0
 #: Abaixo disto a busca AND é restritiva demais e é complementada por OR.
 MIN_RESULTADOS_LEXICAIS = 10
 
-#: Teto de linhas do FTS5. Com 1/(60+rank), nada além das primeiras centenas
-#: pesa no RRF; carregar mais seria custo puro.
+#: Teto de linhas do FTS5: além das primeiras centenas, nada pesa no RRF.
 MAX_RESULTADOS_LEXICAIS = 2000
 
-#: Mesmo teto para a lista densa das ementas. Sem corte por cosseno (a escala
-#: muda de modelo para modelo), é o que limita o custo da fusão.
+#: Mesmo teto para a lista densa das ementas; é o que limita o custo da fusão.
 MAX_RESULTADOS_DENSOS = 2000
 
-#: Quantas proposições têm os vetores de trechos lidos do SQLite numa busca
-#: de inteiro teor. Cada proposição tem em média 15 trechos de 1024 floats;
-#: sem teto, um termo comum ("saúde") casava milhares de proposições e a
-#: leitura passava de centenas de MB por termo.
+#: Proposições cujos vetores de trechos são lidos do SQLite por busca de
+#: inteiro teor. Sem teto, um termo comum lê centenas de MB.
 MAX_PROPOSICOES_DENSA_TRECHOS = 400
 
 #: Tokens lidos por texto vetorizado (consulta ou trecho sob demanda).
@@ -62,9 +53,7 @@ MAX_TOKENS = 512
 #: Ementas usadas para estimar a distribuição de cossenos de cada termo.
 TAMANHO_AMOSTRA_DESTAQUE = 20_000
 
-#: Vetores de consulta guardados. Uma busca vetoriza o mesmo termo para as
-#: ementas, para os trechos e para o apêndice; no Qwen3 cada vetorização custa
-#: ~0,5 s em 2 vCPU.
+#: Vetores de consulta em cache: uma busca vetoriza o mesmo termo várias vezes.
 MAX_VETORES_EM_CACHE = 2048
 
 STOPWORDS_PT = {
@@ -90,9 +79,7 @@ def destaque(cosseno: Optional[float], estatisticas: tuple[float, float]) -> Opt
     Quanto um cosseno se destaca da distribuição do termo no acervo:
     (cosseno − mediana) / (p99 − mediana).
 
-    O cosseno cru não é comparável entre termos nem entre modelos. Medido com
-    Qwen3 (ver avaliacao/embeddings/README.md): consultas sem sentido têm o 1º
-    resultado em ~1,6; a matéria central de cada tema, mediana 2,24.
+    O cosseno cru não é comparável entre termos nem entre modelos.
     """
     if cosseno is None:
         return None
@@ -108,9 +95,7 @@ class Buscador:
         self._trava_acervo = threading.Lock()
         self._trava_encode = threading.Lock()
 
-        # Acervo das ementas em memória: metadados + matriz de vetores + normas.
-        # Custa ~2 GiB com vetores de 1024 dimensões, e em troca cada termo de busca leva ~0,1 s em vez de
-        # reler 429 mil BLOBs do SQLite (2 a 5 s por termo).
+        # Acervo das ementas em memória (~2 GiB): metadados, matriz de vetores e normas.
         self._acervo: Optional[list[dict[str, Any]]] = None
         self._matriz: Optional[np.ndarray] = None
         self._normas: Optional[np.ndarray] = None
@@ -169,9 +154,7 @@ class Buscador:
                     vetor = np.frombuffer(row[1], dtype=np.float32)
                     if dim is None:
                         dim = len(vetor)
-                        # Matriz alocada uma vez e preenchida linha a linha: com
-                        # uma lista de vetores + np.vstack, os 429 mil BLOBs e a
-                        # matriz coexistiam, e o acervo ocupava 3,7 GiB em vez de ~2.
+                        # Matriz alocada uma vez e preenchida linha a linha: np.vstack dobraria o pico de memória.
                         matriz = np.empty((total, dim), dtype=np.float32)
                     if len(vetor) != dim:
                         continue
@@ -207,11 +190,8 @@ class Buscador:
 
     def _conferir_modelo_do_indice(self, conn: sqlite3.Connection) -> None:
         """
-        Falha ALTO se o banco declara vetores de outro modelo.
-
-        Comparar a consulta de um modelo com vetores de outro não dá erro
-        nenhum: devolve ranking aleatório com cara de resultado. Bancos
-        anteriores à tabela `indice_vetorial` não são conferidos.
+        Falha se o banco declara vetores de outro modelo (o ranking sairia
+        aleatório, sem erro). Bancos sem a tabela `indice_vetorial` não são conferidos.
         """
         try:
             linha = conn.execute(
@@ -361,11 +341,8 @@ class Buscador:
         """
         Ementas que casam com o termo no FTS5, na ordem do BM25.
 
-        `completar_com_or=False` devolve só os casamentos com TODAS as palavras
-        (AND). É o que a busca híbrida usa: com Qwen3, o complemento em OR
-        piorava a fusão (MRR nas votadas 0,734 → 0,665; ver
-        avaliacao/embeddings/README.md), porque trazia ementas com qualquer
-        uma das palavras.
+        `completar_com_or=False` devolve só os casamentos com todas as palavras
+        (AND). É o que a busca híbrida usa: o complemento em OR piorava a fusão.
         """
         if lista_ids is not None and not lista_ids:
             return []
@@ -373,12 +350,8 @@ class Buscador:
         if not expressao:
             return []
 
-        # O recorte por `lista_ids` é feito em Python, DEPOIS do MATCH e ANTES
-        # do teto. Passar os IDs num `IN (...)` do FTS5 custava de 0,7 a 7 s por
-        # termo com os ~1.300 IDs de `somente_votadas`; ler só rowid e rank de
-        # todos os casamentos e filtrar por conjunto custa milissegundos. O
-        # corte continua acontecendo depois do filtro, então não há perda de
-        # recall — e o resultado é idêntico ao da consulta com IN.
+        # O recorte por `lista_ids` é feito em Python, depois do MATCH e antes do
+        # teto: um `IN (...)` no FTS5 é ordens de grandeza mais lento.
         filtro = set(lista_ids) if lista_ids is not None else None
 
         def executar(conn, expr: str) -> Optional[list[dict[str, Any]]]:
@@ -425,9 +398,7 @@ class Buscador:
         with conexao() as conn:
             resultado_and = executar(conn, expressao)
             resultados = resultado_and or []
-            # OR quando o AND falhou, veio vazio ou trouxe poucos resultados.
-            # Mescla em vez de substituir: os acertos do AND casaram todos os
-            # termos e ficam no topo, na ordem original.
+            # OR quando o AND falhou ou trouxe pouco; os acertos do AND ficam no topo.
             if completar_com_or and (
                 resultado_and is None or len(resultados) < MIN_RESULTADOS_LEXICAIS
             ):
@@ -552,12 +523,9 @@ class Buscador:
         """
         Proposições cujos vetores de trechos são lidos para a parte densa.
 
-        Carregar os 741 mil vetores a cada busca é inviável. Candidatas, em
-        ordem: as do lexical (na ordem do BM25) e as de ementa mais próxima do
-        termo pela densa, sempre dentro de `lista_ids` quando houver. Até
-        MAX_PROPOSICOES_DENSA_TRECHOS. Antes, sem lexical e sem `lista_ids`, a
-        densa caía nos 5.000 trechos mais recentes do banco, um recorte sem
-        relação com o termo.
+        Candidatas, em ordem: as do lexical (ordem do BM25) e as de ementa mais
+        próxima do termo pela densa, dentro de `lista_ids` quando houver, até
+        MAX_PROPOSICOES_DENSA_TRECHOS.
         """
         if lista_ids and len(lista_ids) <= MAX_PROPOSICOES_DENSA_TRECHOS:
             return list(lista_ids)

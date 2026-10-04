@@ -1,10 +1,8 @@
 """
 Configuração do servidor, lida uma vez das variáveis de ambiente.
 
-Tudo que muda entre o computador de desenvolvimento e a VM de produção passa
-por aqui. Nenhum outro módulo lê `os.environ` diretamente — assim a lista
-completa de variáveis reconhecidas é este arquivo, e o `.env.example` espelha
-exatamente o que está nele.
+Nenhum outro módulo lê `os.environ` diretamente: a lista completa de variáveis
+reconhecidas é este arquivo.
 """
 
 from __future__ import annotations
@@ -62,8 +60,7 @@ def _lista(nome: str) -> tuple[str, ...]:
 class Config:
     # ---- Banco legislativo (somente leitura) --------------------------------
     db_path: Path
-    #: Abre com `immutable=1`: sem locks e sem checar mudanças no arquivo.
-    #: Correto em produção, onde o banco só é trocado com o servidor parado.
+    #: Abre com `immutable=1` (sem locks): só para banco que não muda com o servidor no ar.
     db_imutavel: bool
 
     # ---- Banco de usuários (leitura e escrita) ------------------------------
@@ -73,8 +70,7 @@ class Config:
     transporte: str
     host: str
     porta: int
-    #: Permite LEIS_AUTH=off escutando fora de 127.0.0.1. Só para o contêiner
-    #: de desenvolvimento, cuja porta é publicada apenas em 127.0.0.1 do host.
+    #: Permite LEIS_AUTH=off fora de 127.0.0.1. Só para o contêiner de desenvolvimento.
     permitir_sem_auth_em_rede: bool
 
     # ---- Autenticação -------------------------------------------------------
@@ -94,10 +90,9 @@ class Config:
 
     # ---- Busca --------------------------------------------------------------
     embedding_model: str
-    #: Prefixo das CONSULTAS (não dos documentos). O Qwen3-Embedding foi
-    #: treinado com instrução na consulta; sem ela o recall cai.
+    #: Prefixo das consultas (não dos documentos), exigido pelo Qwen3-Embedding.
     embedding_instrucao: str
-    #: Proposições por busca de ementas. Padrão e faixa do projeto original.
+    #: Proposições por busca de ementas.
     top_k: int
     top_k_maximo: int
     top_k_inteiro_teor: int
@@ -105,32 +100,25 @@ class Config:
     threshold: float
     threshold_inteiro_teor: float
     buscas_simultaneas: int
-    #: Espera máxima por vaga de ferramenta pesada. Passou disso, a chamada é
-    #: recusada como "servidor ocupado" e não conta na cota.
+    #: Espera máxima por vaga de ferramenta pesada; depois disso, "servidor ocupado".
     espera_maxima_seg: float
     aquecer_na_partida: bool
 
     # ---- Inteiro teor sob demanda -------------------------------------------
-    #: Baixa da Câmara/Senado o texto de proposições pedidas em `lista_ids` que
-    #: não têm inteiro teor indexado. Nada é gravado no banco: o resultado fica
-    #: só em memória.
+    #: Baixa da Câmara/Senado o texto de proposições sem inteiro teor indexado (só em memória).
     sob_demanda: bool
     sob_demanda_max_proposicoes: int
     sob_demanda_timeout_seg: float
     sob_demanda_max_mb: int
 
     # ---- Tamanho das respostas ----------------------------------------------
-    #: Caracteres por página de resposta. Nada é podado: o que não cabe vai
-    #: para a página seguinte. 100 mil fica abaixo do teto de ~150 mil
-    #: caracteres por resultado do claude.ai/Claude Desktop.
+    #: Caracteres por página de resposta (o claude.ai aceita ~150 mil por resultado).
     max_chars_pagina: int
-    #: Por quanto tempo o resultado de uma busca fica em memória para servir as
-    #: páginas seguintes sem recalcular.
+    #: Tempo que o resultado de uma busca fica em memória para servir as páginas seguintes.
     cache_ttl_seg: int
 
     # ---- Segurança e limites ------------------------------------------------
-    #: Trava de segurança do SQL livre, não limite de uso: o claude.ai e o
-    #: Claude Desktop abandonam a chamada em 240 s. 0 desliga a trava.
+    #: Limite de tempo do SQL livre (o claude.ai abandona a chamada em 240 s). 0 desliga.
     sql_timeout_seg: float
     mascarar_erros: bool
 
@@ -188,9 +176,7 @@ def obter_config() -> Config:
         top_k_maximo=_inteiro("LEIS_TOP_K_MAXIMO", 500),
         top_k_inteiro_teor=_inteiro("LEIS_TOP_K_INTEIRO_TEOR", 8),
         top_k_inteiro_teor_maximo=_inteiro("LEIS_TOP_K_INTEIRO_TEOR_MAXIMO", 100),
-        # 0 = sem corte por cosseno: a ordem vem do RRF. Um corte fixo depende
-        # da escala do modelo (no MiniLM, 0,30; no Qwen3 a mediana do acervo já
-        # varia de 0,19 a 0,36 conforme a consulta).
+        # 0 = sem corte por cosseno: a ordem vem do RRF, e a escala depende do modelo.
         threshold=_real("LEIS_THRESHOLD", 0.0),
         threshold_inteiro_teor=_real("LEIS_THRESHOLD_INTEIRO_TEOR", 0.0),
         buscas_simultaneas=max(1, _inteiro("LEIS_BUSCAS_SIMULTANEAS", 2)),
@@ -212,11 +198,8 @@ def obter_config() -> Config:
 
 def validar_para_servir(cfg: Config) -> None:
     """
-    Recusa combinações perigosas antes de abrir a porta.
-
-    A principal: autenticação desligada fora de 127.0.0.1 publicaria o servidor
-    inteiro — inclusive o SQL livre, que sem login é liberado ao usuário de
-    desenvolvimento — para qualquer um na rede.
+    Recusa combinações perigosas antes de abrir a porta, como autenticação
+    desligada fora de 127.0.0.1 (exporia inclusive o SQL livre).
     """
     if not cfg.db_path.is_file():
         raise ConfiguracaoInvalida(f"Banco não encontrado em {cfg.db_path}.")

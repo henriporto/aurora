@@ -35,9 +35,6 @@ comandos.md
 etl/*.done
 
 /pessoal
-# /docs/* (e não /docs/): com a pasta inteira ignorada, o git não consegue
-# reincluir um arquivo dela.
-/docs
 /etl
 /avaliacao
 

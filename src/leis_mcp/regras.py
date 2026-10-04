@@ -1,44 +1,17 @@
 """
 Regras de pesquisa e interpretação para o modelo do cliente.
 
-`REGRAS` é o prompt de sistema do agente original (Assistente Legislativo RAG),
-portado quase literalmente. As únicas mudanças, todas registradas em
-`docs/revisao_da_migracao.md`, são:
+Um servidor MCP não controla o prompt de sistema do cliente, e cada cliente
+trata as instruções do servidor de um jeito (o claude.ai as descarta; o Claude
+Code as corta em ~2 KB). Por isso as regras chegam por quatro caminhos:
 
-- nomes de ferramentas atualizados (`consultar_historico_votos_relatorias` ->
-  `consultar_historico`; parâmetro `termo_busca` -> `termos`);
-- SQL escrito à mão pelo modelo substituído pelas ferramentas que fazem a mesma
-  agregação sem margem de erro (`buscar_proposicao`, `placar_por_votacao`,
-  `posicao_consolidada`); o SQL continua descrito como alternativa para admins;
-- removido o que era específico do Gemini no agente original (o delimitador
-  ⟦RESPOSTA⟧ e os "dois canais" de escrita), que não existe em outros clientes;
-- regra 8 corrigida: dizia que a base "é focada em 2025 e 2026", o que era falso
-  já no projeto original (a cobertura vai de 2018 a 2026 e é medida no banco);
-- acrescentada a regra de paginação, que não existia porque o agente original
-  podava resultados em vez de paginá-los;
-- regra 2-E: `mapear_autores_por_tema` não entrega mais direção classificada
-  (`restringe` / `fomenta` / `outra`); o modelo lê as ementas;
-- acrescentados os EXEMPLOS DE PERGUNTAS e os PROMPTS PRONTOS, para o modelo
-  ter o que mostrar quando o usuário pergunta como formular uma pergunta (no
-  original, os exemplos ficavam no construtor de perguntas da interface);
-- regra 7: proposição sem inteiro teor indexado é lida sob demanda do
-  documento oficial, com origem marcada;
-- acrescentada a regra 11 (lacunas e busca na web). No original, a validação
-  web era uma etapa do backend; aqui ela vira instrução para o cliente que
-  tiver ferramenta de busca, com a origem web marcada na resposta.
-
-COMO AS REGRAS CHEGAM AO MODELO. Um servidor MCP não controla o prompt de
-sistema do cliente, e os clientes tratam as instruções do servidor de formas
-diferentes (o claude.ai as descarta; o Claude Code as corta em ~2 KB). Por isso:
-
-- `INSTRUCOES` (instruções do servidor, < 2 KB): regras que não podem faltar e a
-  ordem de chamar `guia_de_pesquisa` primeiro;
-- ferramenta `guia_de_pesquisa`: devolve `REGRAS` completas. É o único canal que
-  funciona em todos os clientes, porque descrições de ferramentas sempre chegam;
-- descrições das ferramentas e `aviso_sistema` dos retornos repetem as regras
+- `INSTRUCOES` (< 2 KB): o essencial e a ordem de chamar `guia_de_pesquisa` primeiro;
+- ferramenta `guia_de_pesquisa`: devolve `REGRAS` completas; é o único canal
+  que funciona em todos os clientes;
+- descrições das ferramentas e `aviso_sistema` dos retornos: repetem as regras
   críticas de cada ferramenta;
 - recurso `leis://regras` e prompt `assistente_legislativo`, para clientes que
-  permitem ao usuário anexá-los.
+  permitem anexá-los.
 """
 
 from __future__ import annotations

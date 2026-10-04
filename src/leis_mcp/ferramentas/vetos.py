@@ -10,9 +10,7 @@ from leis_mcp.ferramentas.proposicoes import resultados_completos_da_busca
 from leis_mcp.paginacao import paginar
 from leis_mcp.texto import ementa_sem_profissoes
 
-#: Mandatos mapeados. Nome fora da lista é ERRO explícito: antes, um nome que
-#: não casava deixava a consulta sem filtro de data, e um erro de digitação
-#: ('Bolsonaru') atribuía os 485 vetos da base à pessoa errada.
+#: Mandatos mapeados. Nome fora da lista é erro, nunca consulta sem filtro de data.
 MANDATOS: dict[str, list[tuple[str, str]]] = {
     "lula": [("2003-01-01", "2010-12-31"), ("2023-01-01", "2026-12-31")],
     "bolsonaro": [("2019-01-01", "2022-12-31")],
@@ -42,8 +40,7 @@ def consultar_vetos_presidenciais(
 
     periodos = MANDATOS[chave]
     fim_mandato = max(fim for _, fim in periodos)
-    # Mandato inteiramente anterior à cobertura devolvia lista vazia,
-    # indistinguível de "este presidente não vetou nada".
+    # Mandato anterior à cobertura é avisado, não devolvido como lista vazia.
     if int(fim_mandato[:4]) < ANO_INICIAL_VETOS:
         return {
             "erro": "FORA_DA_COBERTURA",
@@ -92,23 +89,15 @@ def consultar_vetos_presidenciais(
         )
 
     if termo and linhas:
-        # Todos os vetos do período entram no ranking; nenhum é descartado por
-        # corte de cosseno (a escala depende do modelo). Antes a chamada usava
-        # threshold=0 e top_k=todos e devolvia tudo como resultado: "Lula +
-        # saneamento básico" listava 87 dos 184 vetos. Agora os de confiança
-        # baixa (sem os termos no texto e sem destaque semântico) saem da lista
-        # principal, mas continuam contados e identificados.
+        # Todos os vetos do período entram no ranking; os de confiança baixa saem
+        # da lista principal, mas continuam contados e identificados.
         busca = resultados_completos_da_busca(
             termos=[termo],
             lista_ids=[r[0] for r in linhas],
             top_k=len(linhas),
         )
-        # Três baldes, não dois. `indeterminada` é o caso em que os termos
-        # aparecem no texto mas a medida semântica diz que o documento não trata
-        # daquilo: não dá para afirmar que se relaciona, nem para dizer que não.
-        # Empurrá-lo para `relevantes` (o que acontecia quando o teste era só
-        # `!= "baixa"`) fazia um crédito suplementar de R$ 2,15 bi entrar como
-        # veto sobre saneamento básico.
+        # Três baldes: `indeterminada` (termos no texto, sem destaque semântico)
+        # não entra em `relevantes`.
         resultados = busca.get("resultados", [])
         relevantes = [v for v in resultados if v.get("confianca") in ("alta", "moderada")]
         indeterminados = [v for v in resultados if v.get("confianca") == "indeterminada"]
@@ -130,11 +119,7 @@ def consultar_vetos_presidenciais(
                 }
                 for v in indeterminados
             ],
-            # A lista inteira só na página 1. São 181 itens (9 KB) num caso
-            # medido, contra 13,5 KB de resposta: repeti-la nas 3 páginas
-            # gastava 27 KB de contexto para dizer três vezes a mesma coisa.
-            # Mesmo critério de `placar_por_votacao`: o que é pequeno repete em
-            # toda página, o que é grande fica numa só.
+            # A lista inteira só na página 1: é grande demais para repetir em todas.
             "vetos_sem_relacao_aparente": (
                 [
                     {"id_proposicao": v["id_proposicao"], "veto": f"VET {v['numero']}/{v['ano']}"}
@@ -150,8 +135,7 @@ def consultar_vetos_presidenciais(
                 f"Os {len(demais)} vetos sem relação aparente com '{termo}' estão listados na PÁGINA 1, "
                 "não nesta. O número acima é o total; a lista não se repete a cada página."
             )
-        # Os avisos de confiança da busca não se aplicam: aqui os de confiança
-        # baixa já estão separados em `vetos_sem_relacao_aparente`.
+        # Os de confiança baixa já estão separados em `vetos_sem_relacao_aparente`.
         avisos = [
             a
             for a in busca.get("avisos", [])

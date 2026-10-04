@@ -26,13 +26,11 @@ def executar_consulta_sql(
     consulta: str, pagina: Optional[int] = None
 ) -> dict[str, Any]:
     """
-    Executa a consulta inteira, sem teto de linhas: o resultado é entregue em
-    páginas de até LEIS_MAX_CHARS_PAGINA caracteres, e nenhuma linha é omitida.
+    Executa a consulta inteira, sem teto de linhas; o resultado é paginado
+    por LEIS_MAX_CHARS_PAGINA.
 
-    Travas que continuam valendo, porque não limitam a pesquisa e sim o dano:
-    conexão `mode=ro`, autorizador que só aceita leitura (bloqueia PRAGMA,
-    ATTACH, escrita) e uma trava de tempo alta (230 s por padrão, logo abaixo
-    dos 240 s em que o claude.ai abandona a chamada; 0 desliga).
+    Travas: conexão `mode=ro`, autorizador que só aceita leitura (bloqueia
+    PRAGMA, ATTACH e escrita) e limite de tempo (230 s por padrão; 0 desliga).
     """
     cfg = obter_config()
     limite_pagina = cfg.max_chars_pagina - 3_000

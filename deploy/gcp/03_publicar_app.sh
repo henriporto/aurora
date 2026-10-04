@@ -1,14 +1,7 @@
 #!/usr/bin/env bash
-# Publica (ou atualiza) o código na VM e sobe os contêineres.
-#
+# Publica o último commit na VM e sobe os contêineres.
 #   bash deploy/gcp/03_publicar_app.sh
-#
-# Envia o conteúdo do último commit (git archive), não arquivos soltos da sua
-# máquina. Envia também deploy/.env, que contém segredos, por SSH.
 set -euo pipefail
-# Com IAP=1 no ambiente, o SSH/SCP passa pelo túnel do Identity-Aware Proxy
-# (é assim que o GitHub Actions entra na VM, sem porta 22 aberta ao mundo).
-# Sem isso, segue o SSH direto de sempre.
 DIR="$(cd "$(dirname "$0")" && pwd)"
 RAIZ="$(cd "$DIR/../.." && pwd)"
 source "$DIR/config.sh"
@@ -34,7 +27,6 @@ if [ "$(grep -E '^LEIS_JWT_CHAVE=' "$RAIZ/deploy/.env" | cut -d= -f2- | tr -d '\
   echo "deploy/.env: LEIS_JWT_CHAVE precisa de 32+ caracteres." >&2
   exit 1
 fi
-# scp preserva as permissões: o .env chega à VM legível só pelo dono.
 chmod 600 "$RAIZ/deploy/.env"
 if [ -n "$(git -C "$RAIZ" status --porcelain -- src deploy pyproject.toml uv.lock)" ]; then
   echo "Aviso: há mudanças não commitadas em src/, deploy/ ou dependências; elas NÃO serão publicadas." >&2
@@ -61,7 +53,6 @@ sudo mv /srv/leis/app.novo /srv/leis/app
 sudo chmod +x /srv/leis/app/deploy/gcp/*.sh
 cd /srv/leis/app/deploy
 sudo docker compose up -d --build
-# Remove imagens antigas que ficaram sem uso (cada build deixa uma).
 sudo docker image prune -f >/dev/null
 echo "Aguardando o servidor ficar saudável (aquecimento: 1 a 5 min)..."
 estado=""

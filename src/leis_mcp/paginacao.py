@@ -1,15 +1,12 @@
 """
 Paginação sem perda e cache de resultados.
 
-Os clientes MCP limitam o tamanho de cada resultado de ferramenta (~150 mil
-caracteres no claude.ai e no Claude Desktop). A alternativa ingênua — podar o
-retorno até caber — descarta justamente o texto que dá precisão à resposta
-(trechos de inteiro teor, ementas completas, nomes). Aqui nada é podado: a lista
-é dividida em páginas por tamanho, e cada item vai inteiro para alguma página.
+Os clientes MCP limitam o tamanho de cada resultado (~150 mil caracteres no
+claude.ai). Nada é podado: a lista é dividida em páginas por tamanho, e cada
+item vai inteiro para alguma página.
 
-As fronteiras das páginas dependem só da lista e do tamanho máximo, então a
-mesma chamada com `pagina=2` devolve sempre os mesmos itens. O cache evita
-refazer a busca para servir a página seguinte.
+As fronteiras dependem só da lista e do tamanho máximo, então a mesma chamada
+com `pagina=2` devolve sempre os mesmos itens. O cache evita refazer a busca.
 """
 
 from __future__ import annotations
@@ -35,7 +32,7 @@ def paginar(
 
     `reserva` desconta do tamanho da página o que a resposta leva além da lista
     (cabeçalho, avisos, resumo). `resumo` nomeia o campo da resposta que traz
-    uma visão compacta de TODOS os itens, citado no aviso de paginação.
+    uma visão compacta de todos os itens, citado no aviso de paginação.
     """
     limite = max(5_000, obter_config().max_chars_pagina - reserva)
     fronteiras: list[tuple[int, int]] = []
@@ -63,8 +60,7 @@ def paginar(
 
     a, b = fronteiras[atual - 1]
     info: dict[str, Any] = {
-        # Primeiro campo de propósito: é o que o modelo precisa ver antes de
-        # tratar a lista como completa.
+        # Primeiro campo: o modelo precisa vê-lo antes de tratar a lista como completa.
         "completo": total == 1,
         "pagina": atual,
         "total_paginas": total,

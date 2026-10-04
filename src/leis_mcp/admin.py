@@ -234,7 +234,7 @@ def cmd_exportar(args: argparse.Namespace) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        prog="leis-admin", description="Administração do servidor leis-mcp."
+        prog="leis-admin", description="Administração do servidor da Aurora."
     )
     sub = parser.add_subparsers(dest="comando", required=True)
 

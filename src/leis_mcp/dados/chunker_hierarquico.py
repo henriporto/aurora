@@ -108,17 +108,10 @@ def montar_texto_enriquecido(
     """
     Texto que é vetorizado e indexado no FTS5 para cada trecho.
 
-    NÃO inclui a ementa nem o autor da proposição. Com o cabeçalho antigo
-    ("=== METADADOS DA PROPOSIÇÃO MÃE ===" + ementa), uma ementa longa ocupava
-    os 128 tokens que o modelo anterior lia e todos os trechos da proposição
-    viravam o MESMO vetor (PL 3626/2023 da Câmara: 71 trechos, 1 vetor); no
-    FTS5, todo trecho casava com as palavras da ementa. A ementa já tem índice
-    próprio (`proposicoes_embeddings` e `proposicoes_fts`).
-
-    Fica só o contexto que muda o sentido do dispositivo: a seção, o caput do
-    artigo (para parágrafo e inciso) e o parágrafo (para inciso sob parágrafo).
-    Função pura: o ETL de reindexação a aplica às colunas já gravadas em
-    `proposicoes_chunks`, sem reler os PDFs.
+    Não inclui a ementa nem o autor (a ementa tem índice próprio; repeti-la
+    deixava todos os trechos da proposição com o mesmo vetor). Fica só o
+    contexto que muda o sentido do dispositivo: a seção, o caput do artigo e o
+    parágrafo. Função pura, reaplicável às colunas de `proposicoes_chunks`.
     """
     linhas = [f"{documento} · {identificador_dispositivo} ({tipo_dispositivo})"]
     if contexto_secao and contexto_secao not in ("Preâmbulo", "Anexo", "Fecho"):

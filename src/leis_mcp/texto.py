@@ -14,7 +14,7 @@ def sem_acento(texto: Any) -> str:
     return "".join(c for c in decomposto if unicodedata.category(c) != "Mn").lower()
 
 
-#: Sufixos que o projeto original acrescentava a algumas ementas.
+#: Sufixos acrescentados a algumas ementas na base.
 _MARCAS_PROFISSOES = ("[Profissões impactadas:", "[Profissões analisadas:")
 
 
@@ -34,9 +34,8 @@ def normalizar_casa(casa: Optional[str]) -> Optional[str]:
     """
     Converte qualquer grafia de casa legislativa para o valor gravado no banco.
 
-    O banco usa 'Câmara' e 'Senado' por extenso. As siglas 'CD'/'SF' das APIs
-    oficiais produziam filtro sem correspondência e ZERO resultados sem erro —
-    o pior tipo de falha, porque parece uma resposta legítima.
+    O banco usa 'Câmara' e 'Senado' por extenso; as siglas 'CD'/'SF' das APIs
+    não casariam com nada.
     """
     if not casa:
         return None

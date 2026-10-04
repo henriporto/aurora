@@ -1,22 +1,12 @@
 """
-Siglas de partido que designam a MESMA legenda.
+Siglas de partido que designam a mesma legenda.
 
 `votos.partido_voto` guarda a sigla crua de cada fonte na data do voto. A mesma
-legenda aparece com grafias diferentes por dois motivos:
+legenda aparece com siglas diferentes por grafia da fonte (a Câmara grava
+"PODE", o Senado "PODEMOS") ou por renomeação (PR → PL, PRB → REPUBLICANOS).
 
-- grafia da fonte: a Câmara grava "PODE" e o Senado "PODEMOS"; "S.PART." e
-  "S/Partido" são o mesmo "sem partido";
-- renomeação: o partido mudou de nome e de sigla sem deixar de ser o mesmo
-  (mesmo registro e número no TSE). A API da Câmara dá um ID novo a cada
-  renomeação (PRB 36815 × REPUBLICANOS 37908), então nem o ID de lá unifica.
-
-As renomeações abaixo foram conferidas no próprio banco: a bancada inteira troca
-de sigla na mesma data (ex.: PR → PL em 22/05/2019, 42 deputados, 88% da
-bancada; PRB → REPUBLICANOS em 20/08/2019; PEN → PATRI em 28/05/2018).
-
-FUSÃO e INCORPORAÇÃO são outra coisa: o partido resultante não é o mesmo que
-os anteriores, e somar os votos deles atribuiria a uma legenda votos dados por
-outra. Ficam só como aviso (`SUCESSOES`).
+Fusão e incorporação não entram: o partido resultante não é o mesmo que os
+anteriores. Ficam só como aviso (`SUCESSOES`).
 """
 
 from __future__ import annotations

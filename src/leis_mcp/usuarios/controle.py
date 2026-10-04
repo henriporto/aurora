@@ -1,25 +1,20 @@
 """
-Controle de acesso aplicado a TODA chamada de ferramenta.
+Controle de acesso aplicado a toda chamada de ferramenta.
 
 Ordem, em cada chamada:
 1. identidade — e-mail do token do Google (ou o usuário de desenvolvimento);
 2. usuário — criado no primeiro acesso com o papel padrão configurado;
 3. papel — `bloqueado` e `pendente` são recusados; ferramentas marcadas com a
    tag `admin` exigem papel `admin`;
-4. cota — chamadas de hoje (fuso configurado) contra a cota do usuário;
-   a chamada é gravada ANTES de executar, na mesma transação da contagem, para
-   que chamadas em paralelo não furem a cota;
+4. cota — chamadas de hoje (fuso configurado) contra a cota do usuário; a
+   chamada é gravada antes de executar, na mesma transação da contagem;
 5. semáforo — ferramentas marcadas `pesada` disputam um número limitado de vagas
-   (uma por usuário de cada vez), com espera máxima, para que buscas simultâneas
-   não esgotem a CPU e a RAM da VM;
+   (uma por usuário de cada vez), com espera máxima;
 6. execução e registro — tudo vai para `usuarios.db`, inclusive recusas, e uma
-   linha de log por chamada (sem e-mail) alimenta as métricas do GCP.
+   linha de log por chamada (sem e-mail) alimenta as métricas.
 
 Recursos por ID (`leis://proposicao/…`, `leis://parlamentar/…`) passam pelo
 mesmo caminho e contam na cota.
-
-Uma camada só, antes de todas as ferramentas: quem escreve uma ferramenta nova
-não tem como esquecer de aplicar cota ou registro.
 """
 
 from __future__ import annotations
@@ -90,8 +85,7 @@ class ControleDeAcesso(Middleware):
         email = (token.claims or {}).get("email")
         if not email:
             return None
-        # Papel e LEIS_ADMINS são decididos pelo e-mail: sem verificação, uma
-        # conta Google criada com o endereço de outra pessoa herdaria o acesso.
+        # O papel é decidido pelo e-mail, então ele precisa estar verificado.
         # O tokeninfo devolve "true" (texto); o userinfo, true (booleano).
         if str((token.claims or {}).get("email_verified")).lower() != "true":
             return None
@@ -151,8 +145,7 @@ class ControleDeAcesso(Middleware):
         espera_ms: int = 0,
         **extra: Any,
     ) -> None:
-        # Uma linha por chamada, sem e-mail: é o que o Cloud Logging transforma
-        # nas métricas do painel (docs/deploy_gcp.md, "Monitoramento").
+        # Uma linha por chamada, sem e-mail: vira as métricas do painel.
         logger.info(
             "chamada ferramenta=%s status=%s duracao_ms=%s espera_ms=%d usuario_id=%s",
             ferramenta,
@@ -219,8 +212,7 @@ class ControleDeAcesso(Middleware):
             if usuario.papel in ("bloqueado", "pendente"):
                 raise ToolError("Conta sem acesso liberado.")
             return await call_next(context)
-        # Os recursos por ID rodam as mesmas consultas das ferramentas: sem
-        # isto, seriam um caminho sem cota e sem registro.
+        # Recursos por ID rodam as mesmas consultas das ferramentas: mesma cota e registro.
         return await self._executar(
             "recurso", {"uri": uri}, set(), lambda: call_next(context)
         )
@@ -324,12 +316,10 @@ class ControleDeAcesso(Middleware):
         self, usuario: Usuario, nome: str, chamada_id: int
     ) -> AsyncIterator[None]:
         """
-        Duas filas, com espera máxima somada de LEIS_ESPERA_MAXIMA_SEG:
-        primeiro a do próprio usuário (uma busca pesada por vez por conta, para
-        que chamadas em paralelo de uma pessoa não ocupem todas as vagas), depois
-        a global (LEIS_BUSCAS_SIMULTANEAS). Passou do prazo, a chamada é
-        recusada e a reserva da cota é desfeita: esperar indefinidamente só
-        empurraria a resposta para depois dos 240 s em que o cliente desiste.
+        Duas filas, com espera máxima somada de LEIS_ESPERA_MAXIMA_SEG: a do
+        próprio usuário (uma busca pesada por vez por conta) e a global
+        (LEIS_BUSCAS_SIMULTANEAS). Passou do prazo, a chamada é recusada e a
+        reserva da cota é desfeita.
         """
         por_usuario = self._vagas_por_usuario.setdefault(
             usuario.id, asyncio.Semaphore(1)

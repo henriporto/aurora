@@ -1,18 +1,6 @@
 #!/usr/bin/env bash
 # Instala na VM o banco publicado no Hugging Face.
-#
 #   bash deploy/gcp/02_banco_do_hf.sh [--forcar]
-#
-# Este é o caminho normal, e o que o GitHub Actions usa: a VM baixa direto do
-# Hugging Face, sem passar pela sua máquina nem pelo runner. São 4 GB de
-# download que viram 12 GB de banco — trafegar isso por um runner do Actions
-# (14 GB de disco) não caberia, e pelo seu PC seria um upload de 12 GB.
-#
-# Para instalar um banco que você AINDA NÃO publicou, use 02_enviar_banco.sh.
-#
-# É idempotente e barato de repetir: compara o SHA-256 do manifesto do Hugging
-# Face com o do banco em uso e não baixa nada se forem iguais. Por isso o
-# workflow pode chamá-lo a cada deploy.
 set -euo pipefail
 DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$DIR/config.sh"
@@ -51,8 +39,6 @@ if [ "$FORCAR" != "sim" ] && [ -f "$MARCA" ] && [ -L "$BANCO_DIR/leis.db" ] \
   exit 0
 fi
 
-# Precisa caber o banco novo ao lado do atual e do anterior, mais folga para
-# imagens e logs. O download é em streaming, então o .zst nunca ocupa disco.
 PRECISA_GB=$(( BYTES / 1000000000 + 6 ))
 LIVRE_GB=$(df -BG --output=avail /srv/leis | tail -1 | tr -dc 0-9)
 if [ "$LIVRE_GB" -lt "$PRECISA_GB" ]; then
@@ -63,18 +49,9 @@ fi
 
 VERSAO="leis-$(date +%Y%m%d-%H%M%S).db"
 DESTINO="$BANCO_DIR/$VERSAO"
-# Download interrompido não pode deixar um arquivo pela metade ocupando 12 GB.
 trap 'sudo rm -f "$DESTINO"' ERR INT TERM
 echo "--> Baixando e descomprimindo em streaming ($VERSAO)"
-# O pipe evita guardar os 4 GB comprimidos: sai direto no arquivo final.
-#
-# Duas escolhas de forma, as duas por segurança e não por estilo:
-#   - o pipe fica NESTE shell, que tem `pipefail`, e só o `tee` roda com sudo
-#     (é quem escreve em /srv). Com `sudo bash -c "curl | zstd"`, o pipefail
-#     não valeria dentro do shell novo e um download cortado passaria por bom;
-#   - `zstd -dc` para stdout mais `tee`, em vez de `zstd -o`, porque essa é a
-#     forma que funciona em qualquer versão do zstd; `-o` lendo de stdin varia
-#     entre versões.
+# Pipe neste shell (com pipefail): download cortado falha em vez de passar por bom.
 curl -fsSL "$BASE_URL/$ARQUIVO" | zstd -dc | sudo tee "$DESTINO" > /dev/null
 
 echo "--> Conferindo SHA-256"
@@ -89,12 +66,10 @@ if [ "$TAMANHO" != "$BYTES" ]; then
   exit 1
 fi
 echo "    confere."
-# A partir daqui o arquivo é bom: sair por erro não deve mais apagá-lo.
 trap - ERR INT TERM
 
+# Links relativos: a pasta é montada em /banco dentro do contêiner.
 cd "$BANCO_DIR"
-# Links RELATIVOS: a pasta é montada em /banco dentro do contêiner, e um link
-# absoluto para /srv/leis/banco/... não existiria lá.
 if [ -L leis.db ]; then
   sudo ln -sfn "$(readlink leis.db)" leis.anterior.db
 fi
@@ -102,7 +77,6 @@ sudo ln -sfn "$VERSAO" leis.db.tmp
 sudo mv -Tf leis.db.tmp leis.db
 printf '%s' "$SHA_NOVO" | sudo tee "$MARCA" >/dev/null
 
-# Mantém só a versão em uso e a anterior.
 ATUAL="$(readlink leis.db)"
 ANTERIOR="$(readlink leis.anterior.db 2>/dev/null || true)"
 for arquivo in leis-*.db; do

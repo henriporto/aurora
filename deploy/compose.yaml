@@ -1,9 +1,5 @@
-# Produção: Caddy (HTTPS automático) na frente do leis-mcp.
-#
-#   cd deploy && cp exemplo.env .env   # preencha
-#   docker compose up -d --build
-#
-# Desenvolvimento local, sem Caddy e sem login: veja compose.dev.yaml.
+# Produção: Caddy (HTTPS automático) na frente do servidor da Aurora.
+#   cp exemplo.env .env && docker compose up -d --build
 
 name: leis
 
@@ -17,16 +13,13 @@ services:
     env_file: .env
     environment:
       LEIS_TRANSPORTE: http
-      # Em produção o banco nunca muda com o servidor no ar: sem locks.
       LEIS_DB_IMUTAVEL: "1"
     volumes:
-      # Pasta que contém leis.db, montada somente leitura.
       - ${LEIS_BANCO_DIR:?defina LEIS_BANCO_DIR no .env}:/banco:ro
-      # usuarios.db e estado do OAuth (registros de clientes, tokens cifrados).
       - dados:/dados
     expose:
       - "8000"
-    # O processo pica em ~3,6 GB; o limite evita que um vazamento derrube a VM.
+    # O processo usa até ~3,6 GB; o limite evita que um vazamento derrube a VM.
     mem_limit: 6g
     logging:
       driver: json-file

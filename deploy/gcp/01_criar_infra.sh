@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
-# Cria a infraestrutura no GCP: conta de serviço, IP fixo, firewall, bucket de
-# backup e VM. Idempotente: o que já existe é mantido.
-#
-#   cp deploy/gcp/config.exemplo.sh deploy/gcp/config.sh   # e ajuste
+# Cria a infraestrutura no GCP: conta de serviço, bucket, IP, firewall e VM.
 #   bash deploy/gcp/01_criar_infra.sh
 set -euo pipefail
 DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -16,13 +13,11 @@ echo "==> Habilitando APIs (Compute, Storage, IAM, Logging, Monitoring)"
 gcloud services enable compute.googleapis.com storage.googleapis.com iam.googleapis.com \
   logging.googleapis.com monitoring.googleapis.com
 
-# A conta padrão do Compute tem papel Editor no projeto inteiro. Qualquer
-# processo da VM (inclusive um contêiner comprometido) alcança o servidor de
-# metadados e usaria esse token. Esta conta só escreve logs, métricas e backups.
+# Conta própria e mínima: a padrão do Compute tem papel Editor no projeto inteiro.
 echo "==> Conta de serviço $SA"
 if ! gcloud iam service-accounts describe "$SA" >/dev/null 2>&1; then
-  gcloud iam service-accounts create "$SA_NOME" --display-name "VM do leis-mcp"
-  sleep 15  # propagação: a VM recusa uma conta recém-criada por alguns segundos
+  gcloud iam service-accounts create "$SA_NOME" --display-name "VM da Aurora"
+  sleep 15
 fi
 for papel in roles/logging.logWriter roles/monitoring.metricWriter; do
   gcloud projects add-iam-policy-binding "$PROJETO" \
@@ -34,8 +29,7 @@ if ! gcloud storage buckets describe "$BUCKET_BACKUP" >/dev/null 2>&1; then
   gcloud storage buckets create "$BUCKET_BACKUP" --location "$REGIAO" \
     --uniform-bucket-level-access --public-access-prevention
 fi
-# Cria e lê objetos, mas não apaga nem sobrescreve: um invasor na VM não
-# consegue destruir os backups.
+# Cria e lê, mas não apaga: a VM não consegue destruir os backups.
 for papel in roles/storage.objectCreator roles/storage.objectViewer; do
   gcloud storage buckets add-iam-policy-binding "$BUCKET_BACKUP" \
     --member "serviceAccount:$SA" --role "$papel" >/dev/null
@@ -67,7 +61,6 @@ if ! gcloud compute instances describe "$NOME_VM" --zone "$ZONA" >/dev/null 2>&1
     --shielded-secure-boot --shielded-vtpm --shielded-integrity-monitoring \
     --metadata-from-file startup-script="$DIR/preparar_vm.sh"
 else
-  # Mantém o script de inicialização em dia com o repositório (vale no próximo boot).
   gcloud compute instances add-metadata "$NOME_VM" --zone "$ZONA" \
     --metadata-from-file startup-script="$DIR/preparar_vm.sh"
 fi
@@ -76,13 +69,4 @@ cat <<FIM
 
 Infraestrutura pronta.
   IP da VM: $IP
-
-Próximos passos (docs/deploy_gcp.md):
-  1. No seu provedor de DNS, crie um registro A: <seu domínio> -> $IP
-  2. Aguarde a VM instalar Docker e Ops Agent (~3 min) e envie o banco:
-       bash deploy/gcp/02_enviar_banco.sh
-  3. Preencha deploy/.env (a partir de deploy/exemplo.env) e publique:
-       bash deploy/gcp/03_publicar_app.sh
-  4. Monitoramento, alertas e painel:
-       bash deploy/gcp/04_monitoramento.sh
 FIM

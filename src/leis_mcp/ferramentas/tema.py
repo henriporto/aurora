@@ -21,10 +21,6 @@ def votos_por_tema(
 ) -> dict[str, Any]:
     """
     Encadeia `busca_semantica_proposicoes(somente_votadas=True)` e `consultar_votos`.
-
-    É a sequência da regra 2-B, que o modelo precisava lembrar de fazer na
-    ordem certa e com o filtro certo — sem `somente_votadas`, a busca devolvia
-    projetos nunca votados e nenhum deles respondia à pergunta.
     """
     with conexao() as conn:
         pessoa = conn.execute(
@@ -37,9 +33,7 @@ def votos_por_tema(
             "observacao": "Use `buscar_id_parlamentar` para obter o ID.",
         }
 
-    # Sem `casa`, busca na casa do parlamentar: votações da outra casa só
-    # produziriam status sem voto possível para ele (uma deputada não vota a
-    # PEC 45/2019 no Senado), ocupando vagas das que ele pôde votar.
+    # Sem `casa`, busca só na casa do parlamentar: ele não vota na outra.
     casa_da_busca = casa or pessoa[4]
     busca = resultados_completos_da_busca(
         termos=termos,

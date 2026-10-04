@@ -4,20 +4,16 @@ Em exercício na data? A partir de `exercicio_eventos` (histórico da Câmara).
 Cada evento registra a situação a partir de `data_hora`; o estado numa data é a
 situação do último evento até ela.
 
-A afirmação usada pelo servidor é CONSERVADORA (`fora_de_exercicio_no_dia`),
-porque o histórico da API tem lacunas medidas contra os votos reais:
+O histórico da API tem lacunas, então a afirmação usada pelo servidor
+(`fora_de_exercicio_no_dia`) é conservadora:
 
-- 2.922 votos (20 deputados) foram dados com "CONVOCADO" como último evento: a
-  posse ou a reassunção nem sempre vira evento "Exercício". CONVOCADO fica
-  indeterminado, nunca "fora";
-- licenças datadas às 00:00 do dia em que o deputado votou de manhã (44 votos).
-  Por isso a saída precisa valer no fim da véspera E no fim do dia.
+- "CONVOCADO" como último evento é indeterminado, nunca "fora" (posse e
+  reassunção nem sempre viram evento "Exercício");
+- a saída precisa valer no fim da véspera e no fim do dia (há licenças datadas
+  às 00:00 do dia em que o deputado votou).
 
-Mesmo assim, 19 dos 1,26 milhão de votos da Câmara (0,0015%) caem em dias que
-o histórico dá como fora de exercício: o deputado votou durante licença
-registrada. Por isso quem chama (`votos.status_por_proposicao`) também não
-afirma "fora" quando o deputado votou em outra votação da mesma casa no dia:
-um voto real contradiz o histórico. O voto só derruba a afirmação, nunca a cria.
+Quem chama também não afirma "fora" se o deputado votou em outra votação da
+mesma casa no dia.
 """
 
 from __future__ import annotations
@@ -66,10 +62,7 @@ def tem_historico(id_parlamentar: int) -> bool:
 def situacao_na_data(id_parlamentar: int, data: str) -> Optional[str]:
     """
     Situação do parlamentar na data/hora `data` (ISO), ou None se não houver
-    histórico dele ou nenhum evento até a data.
-
-    Data sem hora ("2023-12-15") é tratada como o fim do dia: um deputado que
-    tomou posse às 12h votou naquela data em exercício.
+    histórico dele ou nenhum evento até a data. Data sem hora vale como fim do dia.
     """
     registro = _carregar().get(id_parlamentar)
     if not registro or not data:

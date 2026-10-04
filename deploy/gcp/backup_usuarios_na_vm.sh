@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
-# Roda NA VM (cron diário instalado por preparar_vm.sh, ou manualmente).
-# Faz uma cópia consistente do usuarios.db (API de backup do SQLite, segura com
-# o servidor no ar) e envia ao bucket configurado em config.sh.
+# Roda na VM (cron diário): copia o usuarios.db e envia ao bucket de backup.
 set -euo pipefail
 DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$DIR/config.sh" 2>/dev/null || { echo "config.sh ausente na VM; copie deploy/gcp/config.sh junto do app" >&2; exit 1; }
@@ -17,6 +15,5 @@ destino.close()
 "
 docker compose cp leis-mcp:/dados/backup-usuarios.db "/srv/leis/backup/usuarios-$CARIMBO.db"
 gcloud storage cp "/srv/leis/backup/usuarios-$CARIMBO.db" "$BUCKET_BACKUP/usuarios/"
-# Mantém 14 cópias locais.
 ls -1t /srv/leis/backup/usuarios-*.db | tail -n +15 | xargs -r rm -f
 echo "$(date -u) backup usuarios-$CARIMBO.db enviado"
