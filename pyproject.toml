@@ -3,6 +3,8 @@ name = "leis-mcp"
 version = "0.1.0"
 description = "Servidor MCP remoto sobre votos nominais, proposições e inteiro teor do processo legislativo federal brasileiro"
 readme = "README.md"
+license = "MIT"
+authors = [{ name = "Henrique Porto" }]
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "fastmcp>=4,<5",

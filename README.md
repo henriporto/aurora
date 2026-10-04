@@ -114,3 +114,9 @@ A base possui dados de `2018-02-07` a `2026-09-03` e está publicada no Hugging 
 | Proposições com situação de tramitação | 429.816 |
 | Trechos de inteiro teor indexados | 741.519 |
 | Parlamentares | 1.630 |
+
+## Licença
+
+O código é distribuído sob a licença [MIT](LICENSE).
+
+Os dados são públicos, das bases abertas da Câmara dos Deputados e do Senado Federal, e não são cobertos por esta licença.
